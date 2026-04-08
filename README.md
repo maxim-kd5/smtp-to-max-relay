@@ -26,3 +26,6 @@ Current baseline uses a stub MAX sender and is ready for integration with `max-b
 
 
 Note: port `25` is the standard SMTP port for inter-server delivery. On Linux, binding to privileged ports (<1024) may require root or additional capabilities; for local development you can set `SMTP_LISTEN_ADDR=:2525`.
+
+
+SMTP AUTH: relay mode does not require authentication. If a client attempts `AUTH PLAIN`, any username/password is accepted.

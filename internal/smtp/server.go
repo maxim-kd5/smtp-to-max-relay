@@ -28,6 +28,8 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	srv := gosmtp.NewServer(be)
 	srv.Addr = s.addr
 	srv.Domain = s.domain
+	// Relay mode: SMTP auth is optional.
+	// If client sends AUTH PLAIN, any login/password is accepted.
 	srv.AllowInsecureAuth = true
 	srv.MaxMessageBytes = s.maxBytes
 	srv.MaxRecipients = 50
@@ -66,7 +68,10 @@ type session struct {
 	rcpt    []string
 }
 
-func (s *session) AuthPlain(_, _ string) error {
+// Accept any credentials in relay mode (AUTH is optional).
+func (s *session) AuthPlain(username, password string) error {
+	_ = username
+	_ = password
 	return nil
 }
 
