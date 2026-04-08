@@ -15,7 +15,9 @@ Environment variables:
 - `SMTP_MAX_MESSAGE_BYTES` (default `15728640`)
 - `SMTP_ALLOWED_RCPT_DOMAIN` (default `relay.local`)
 - `ALIAS_FILE_PATH` (default `./config/aliases.json`)
-- `MAX_BOT_TOKEN` (required for real sender, stub is used by default)
+- `MAX_SENDER_MODE` (`stub` by default, options: `stub`, `http`)
+- `MAX_API_BASE_URL` (required when `MAX_SENDER_MODE=http`)
+- `MAX_BOT_TOKEN` (required when `MAX_SENDER_MODE=http`)
 
 Current baseline uses a stub MAX sender and is ready for integration with `max-bot-api-client-go`.
 

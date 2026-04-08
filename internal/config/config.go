@@ -12,6 +12,8 @@ type Config struct {
 	SMTPMaxMessageBytes int64
 	SMTPAllowedDomain   string
 	AliasFilePath       string
+	MaxSenderMode       string
+	MaxAPIBaseURL       string
 	MaxBotToken         string
 	MaxSendTimeout      time.Duration
 }
@@ -22,7 +24,9 @@ func Load() (Config, error) {
 		SMTPMaxMessageBytes: getEnvInt64("SMTP_MAX_MESSAGE_BYTES", 15*1024*1024),
 		SMTPAllowedDomain:   getEnv("SMTP_ALLOWED_RCPT_DOMAIN", "relay.local"),
 		AliasFilePath:       getEnv("ALIAS_FILE_PATH", "./config/aliases.json"),
-		MaxBotToken:         getEnv("MAX_BOT_TOKEN", "dev-token"),
+		MaxSenderMode:       getEnv("MAX_SENDER_MODE", "stub"),
+		MaxAPIBaseURL:       getEnv("MAX_API_BASE_URL", ""),
+		MaxBotToken:         getEnv("MAX_BOT_TOKEN", ""),
 		MaxSendTimeout:      time.Duration(getEnvInt("MAX_SEND_TIMEOUT_SEC", 15)) * time.Second,
 	}
 
@@ -31,6 +35,12 @@ func Load() (Config, error) {
 	}
 	if cfg.SMTPMaxMessageBytes <= 0 {
 		return Config{}, fmt.Errorf("SMTP_MAX_MESSAGE_BYTES must be positive")
+	}
+	if cfg.MaxSenderMode != "stub" && cfg.MaxSenderMode != "http" {
+		return Config{}, fmt.Errorf("MAX_SENDER_MODE must be one of: stub, http")
+	}
+	if cfg.MaxSenderMode == "http" && cfg.MaxAPIBaseURL == "" {
+		return Config{}, fmt.Errorf("MAX_API_BASE_URL must not be empty when MAX_SENDER_MODE=http")
 	}
 
 	return cfg, nil

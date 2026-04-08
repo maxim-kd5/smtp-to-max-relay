@@ -25,10 +25,23 @@ func main() {
 		log.Fatalf("aliases error: %v", err)
 	}
 
+	var sender max.Sender
+	if cfg.MaxSenderMode == "http" {
+		httpSender, err := max.NewHTTPSender(cfg.MaxAPIBaseURL, cfg.MaxBotToken, cfg.MaxSendTimeout)
+		if err != nil {
+			log.Fatalf("max sender error: %v", err)
+		}
+		sender = httpSender
+		log.Printf("using MAX sender mode=http")
+	} else {
+		sender = max.NewStubSender()
+		log.Printf("using MAX sender mode=stub")
+	}
+
 	relaySvc := &relay.Service{
 		Recipients: recipient.NewParser(cfg.SMTPAllowedDomain, aliases),
 		Email:      email.NewParser(cfg.SMTPMaxMessageBytes),
-		Sender:     max.NewStubSender(),
+		Sender:     sender,
 	}
 
 	server := smtpsrv.NewServer(cfg.SMTPListenAddr, cfg.SMTPAllowedDomain, cfg.SMTPMaxMessageBytes, relaySvc)
