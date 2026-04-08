@@ -32,3 +32,20 @@ SMTP AUTH: relay mode does not require authentication. If a client attempts `AUT
 
 
 SMTP server does not perform outgoing SMTP delivery and does not forward emails to external recipient domains; it only converts accepted inbound messages to MAX sends.
+
+
+## Docker
+
+Build image locally:
+
+```bash
+docker build -t smtp-to-max-relay:local .
+```
+
+Run with Docker Compose:
+
+```bash
+docker compose up -d --build
+```
+
+Example compose file is available at `docker-compose.yml`.

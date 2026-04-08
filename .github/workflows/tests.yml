@@ -24,3 +24,6 @@ jobs:
 
       - name: Run tests
         run: go test -mod=mod ./...
+
+      - name: Build container image
+        run: docker build -t smtp-to-max-relay:ci .
