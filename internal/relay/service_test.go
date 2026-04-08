@@ -2,7 +2,9 @@ package relay
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"smtp-to-max-relay/internal/email"
 	"smtp-to-max-relay/internal/recipient"
@@ -42,5 +44,41 @@ func TestRelaySendsTextAndAttachment(t *testing.T) {
 	}
 	if len(fs.files) != 1 {
 		t.Fatalf("expected 1 file send, got %d", len(fs.files))
+	}
+}
+
+type flakySender struct {
+	failTextFor int
+	calls       int
+}
+
+func (f *flakySender) SendText(_ context.Context, _, _, _ string, _ bool) error {
+	f.calls++
+	if f.calls <= f.failTextFor {
+		return errors.New("temporary")
+	}
+	return nil
+}
+
+func (f *flakySender) SendFile(_ context.Context, _, _ string, _ email.Attachment, _ bool) error {
+	return nil
+}
+
+func TestRelayRetriesOnTemporarySenderError(t *testing.T) {
+	flaky := &flakySender{failTextFor: 1}
+	s := &Service{
+		Recipients:     recipient.NewParser("relay.local", nil),
+		Email:          email.NewParser(1024 * 1024),
+		Sender:         flaky,
+		MaxSendRetries: 2,
+		RetryBaseDelay: time.Millisecond,
+	}
+
+	raw := []byte("Subject: Retry\r\nFrom: sender@example.com\r\nContent-Type: text/plain\r\n\r\nBody")
+	if err := s.Relay(context.Background(), "123@relay.local", raw); err != nil {
+		t.Fatalf("relay should succeed after retry, got err: %v", err)
+	}
+	if flaky.calls != 2 {
+		t.Fatalf("expected 2 send attempts, got %d", flaky.calls)
 	}
 }

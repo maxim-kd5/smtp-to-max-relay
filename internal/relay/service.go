@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"smtp-to-max-relay/internal/email"
 	"smtp-to-max-relay/internal/max"
@@ -11,9 +12,11 @@ import (
 )
 
 type Service struct {
-	Recipients recipient.Parser
-	Email      email.Parser
-	Sender     max.Sender
+	Recipients     recipient.Parser
+	Email          email.Parser
+	Sender         max.Sender
+	MaxSendRetries int
+	RetryBaseDelay time.Duration
 }
 
 func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) error {
@@ -33,12 +36,17 @@ func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) err
 	}
 
 	text := fmt.Sprintf("📧 %s\nОт: %s\n\n%s", fallback(em.Subject, "(без темы)"), em.From, body)
-	if err := s.Sender.SendText(ctx, pr.ChatID, pr.ThreadID, text, pr.Silent); err != nil {
+	if err := s.sendWithRetry(ctx, func() error {
+		return s.Sender.SendText(ctx, pr.ChatID, pr.ThreadID, text, pr.Silent)
+	}); err != nil {
 		return fmt.Errorf("send text: %w", err)
 	}
 
 	for _, a := range em.Attachments {
-		if err := s.Sender.SendFile(ctx, pr.ChatID, pr.ThreadID, a, pr.Silent); err != nil {
+		att := a
+		if err := s.sendWithRetry(ctx, func() error {
+			return s.Sender.SendFile(ctx, pr.ChatID, pr.ThreadID, att, pr.Silent)
+		}); err != nil {
 			return fmt.Errorf("send file %s: %w", a.Filename, err)
 		}
 	}
@@ -59,4 +67,32 @@ func stripHTMLBasic(s string) string {
 	out = strings.ReplaceAll(out, "<", "")
 	out = strings.ReplaceAll(out, ">", "")
 	return strings.TrimSpace(out)
+}
+
+func (s *Service) sendWithRetry(ctx context.Context, fn func() error) error {
+	maxRetries := s.MaxSendRetries
+	if maxRetries < 0 {
+		maxRetries = 0
+	}
+	delay := s.RetryBaseDelay
+	if delay <= 0 {
+		delay = 300 * time.Millisecond
+	}
+
+	var err error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		err = fn()
+		if err == nil {
+			return nil
+		}
+		if attempt == maxRetries {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+	return err
 }

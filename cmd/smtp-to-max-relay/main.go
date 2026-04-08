@@ -39,9 +39,11 @@ func main() {
 	}
 
 	relaySvc := &relay.Service{
-		Recipients: recipient.NewParser(cfg.SMTPAllowedDomain, aliases),
-		Email:      email.NewParser(cfg.SMTPMaxMessageBytes),
-		Sender:     sender,
+		Recipients:     recipient.NewParser(cfg.SMTPAllowedDomain, aliases),
+		Email:          email.NewParser(cfg.SMTPMaxMessageBytes),
+		Sender:         sender,
+		MaxSendRetries: cfg.RelayMaxRetries,
+		RetryBaseDelay: cfg.RelayRetryDelay,
 	}
 
 	server := smtpsrv.NewServer(cfg.SMTPListenAddr, cfg.SMTPAllowedDomain, cfg.SMTPMaxMessageBytes, relaySvc)

@@ -16,6 +16,8 @@ type Config struct {
 	MaxAPIBaseURL       string
 	MaxBotToken         string
 	MaxSendTimeout      time.Duration
+	RelayMaxRetries     int
+	RelayRetryDelay     time.Duration
 }
 
 func Load() (Config, error) {
@@ -28,6 +30,8 @@ func Load() (Config, error) {
 		MaxAPIBaseURL:       getEnv("MAX_API_BASE_URL", ""),
 		MaxBotToken:         getEnv("MAX_BOT_TOKEN", ""),
 		MaxSendTimeout:      time.Duration(getEnvInt("MAX_SEND_TIMEOUT_SEC", 15)) * time.Second,
+		RelayMaxRetries:     getEnvInt("RELAY_MAX_RETRIES", 2),
+		RelayRetryDelay:     time.Duration(getEnvInt("RELAY_RETRY_DELAY_MS", 300)) * time.Millisecond,
 	}
 
 	if cfg.SMTPAllowedDomain == "" {
@@ -41,6 +45,12 @@ func Load() (Config, error) {
 	}
 	if cfg.MaxSenderMode == "http" && cfg.MaxAPIBaseURL == "" {
 		return Config{}, fmt.Errorf("MAX_API_BASE_URL must not be empty when MAX_SENDER_MODE=http")
+	}
+	if cfg.RelayMaxRetries < 0 {
+		return Config{}, fmt.Errorf("RELAY_MAX_RETRIES must be >= 0")
+	}
+	if cfg.RelayRetryDelay < 0 {
+		return Config{}, fmt.Errorf("RELAY_RETRY_DELAY_MS must be >= 0")
 	}
 
 	return cfg, nil
