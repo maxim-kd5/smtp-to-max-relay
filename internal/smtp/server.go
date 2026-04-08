@@ -1,12 +1,16 @@
 package smtp
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"log"
-
-	gosmtp "github.com/emersion/go-smtp"
+	"net"
+	"strings"
+	"sync"
+	"time"
 
 	"smtp-to-max-relay/internal/relay"
 )
@@ -23,82 +27,153 @@ func NewServer(addr, domain string, maxBytes int64, relaySvc *relay.Service) *Se
 }
 
 func (s *Server) ListenAndServe(ctx context.Context) error {
-	be := &backend{domain: s.domain, maxBytes: s.maxBytes, relaySvc: s.relaySvc}
+	ln, err := net.Listen("tcp", s.addr)
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
+	defer ln.Close()
+	log.Printf("SMTP listening on %s", s.addr)
 
-	srv := gosmtp.NewServer(be)
-	srv.Addr = s.addr
-	srv.Domain = s.domain
-	srv.AllowInsecureAuth = true
-	srv.MaxMessageBytes = s.maxBytes
-	srv.MaxRecipients = 50
+	var wg sync.WaitGroup
+	defer wg.Wait()
 
-	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("SMTP listening on %s", s.addr)
-		errCh <- srv.ListenAndServe()
+		<-ctx.Done()
+		_ = ln.Close()
 	}()
 
-	select {
-	case <-ctx.Done():
-		_ = srv.Close()
-		return nil
-	case err := <-errCh:
-		if err == nil || err == gosmtp.ErrServerClosed {
-			return nil
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			if ne, ok := err.(net.Error); ok && ne.Temporary() {
+				time.Sleep(50 * time.Millisecond)
+				continue
+			}
+			return fmt.Errorf("accept: %w", err)
 		}
-		return err
+
+		wg.Add(1)
+		go func(c net.Conn) {
+			defer wg.Done()
+			defer c.Close()
+			s.handleConn(ctx, c)
+		}(conn)
 	}
 }
 
-type backend struct {
-	domain   string
-	maxBytes int64
-	relaySvc *relay.Service
-}
+func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
+	r := bufio.NewReader(conn)
+	w := bufio.NewWriter(conn)
 
-func (b *backend) NewSession(_ *gosmtp.Conn) (gosmtp.Session, error) {
-	return &session{backend: b}, nil
-}
+	writeLine(w, "220 smtp-to-max-relay ESMTP")
 
-type session struct {
-	backend *backend
-	from    string
-	rcpt    []string
-}
+	var rcpts []string
 
-func (s *session) AuthPlain(_, _ string) error {
-	return nil
-}
+	for {
+		if err := conn.SetReadDeadline(time.Now().Add(5 * time.Minute)); err != nil {
+			return
+		}
+		line, err := r.ReadString('\n')
+		if err != nil {
+			if err != io.EOF {
+				writeLine(w, "421 read error")
+			}
+			return
+		}
+		cmd := strings.TrimSpace(line)
+		ucmd := strings.ToUpper(cmd)
 
-func (s *session) Mail(from string, _ *gosmtp.MailOptions) error {
-	s.from = from
-	s.rcpt = s.rcpt[:0]
-	return nil
-}
+		switch {
+		case strings.HasPrefix(ucmd, "EHLO") || strings.HasPrefix(ucmd, "HELO"):
+			writeLine(w, "250-Hello")
+			writeLine(w, "250 SIZE 15728640")
 
-func (s *session) Rcpt(to string, _ *gosmtp.RcptOptions) error {
-	s.rcpt = append(s.rcpt, to)
-	return nil
-}
+		case strings.HasPrefix(ucmd, "MAIL FROM:"):
+			rcpts = rcpts[:0]
+			writeLine(w, "250 OK")
 
-func (s *session) Data(r io.Reader) error {
-	raw, err := io.ReadAll(io.LimitReader(r, s.backend.maxBytes+1))
-	if err != nil {
-		return fmt.Errorf("read DATA: %w", err)
-	}
-	if int64(len(raw)) > s.backend.maxBytes {
-		return fmt.Errorf("message exceeds max size")
-	}
+		case strings.HasPrefix(ucmd, "RCPT TO:"):
+			addr := extractSMTPPath(cmd[len("RCPT TO:"):])
+			if addr == "" {
+				writeLine(w, "501 bad recipient")
+				continue
+			}
+			rcpts = append(rcpts, addr)
+			writeLine(w, "250 OK")
 
-	ctx := context.Background()
-	for _, rcpt := range s.rcpt {
-		if err := s.backend.relaySvc.Relay(ctx, rcpt, raw); err != nil {
-			return fmt.Errorf("relay to %s: %w", rcpt, err)
+		case ucmd == "DATA":
+			if len(rcpts) == 0 {
+				writeLine(w, "503 need RCPT TO first")
+				continue
+			}
+			writeLine(w, "354 End data with <CR><LF>.<CR><LF>")
+			raw, err := readData(r, s.maxBytes)
+			if err != nil {
+				writeLine(w, "552 message exceeds fixed maximum message size")
+				continue
+			}
+			failed := false
+			for _, rcpt := range rcpts {
+				if err := s.relaySvc.Relay(ctx, rcpt, raw); err != nil {
+					log.Printf("relay error for rcpt=%s: %v", rcpt, err)
+					failed = true
+					break
+				}
+			}
+			if failed {
+				writeLine(w, "451 relay failure")
+				continue
+			}
+			writeLine(w, "250 OK")
+
+		case ucmd == "RSET":
+			rcpts = rcpts[:0]
+			writeLine(w, "250 OK")
+
+		case ucmd == "NOOP":
+			writeLine(w, "250 OK")
+
+		case ucmd == "QUIT":
+			writeLine(w, "221 Bye")
+			return
+
+		default:
+			writeLine(w, "502 command not implemented")
 		}
 	}
-	return nil
 }
 
-func (s *session) Reset() {}
+func writeLine(w *bufio.Writer, line string) {
+	_, _ = w.WriteString(line + "\r\n")
+	_ = w.Flush()
+}
 
-func (s *session) Logout() error { return nil }
+func extractSMTPPath(v string) string {
+	v = strings.TrimSpace(v)
+	v = strings.Trim(v, "<>")
+	return strings.TrimSpace(v)
+}
+
+func readData(r *bufio.Reader, maxBytes int64) ([]byte, error) {
+	var buf bytes.Buffer
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		if line == ".\r\n" || line == ".\n" {
+			break
+		}
+		if strings.HasPrefix(line, "..") {
+			line = line[1:]
+		}
+		if int64(buf.Len()+len(line)) > maxBytes {
+			return nil, fmt.Errorf("too large")
+		}
+		buf.WriteString(line)
+	}
+	return buf.Bytes(), nil
+}
