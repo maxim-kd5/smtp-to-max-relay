@@ -18,7 +18,7 @@ type Config struct {
 
 func Load() (Config, error) {
 	cfg := Config{
-		SMTPListenAddr:      getEnv("SMTP_LISTEN_ADDR", ":2525"),
+		SMTPListenAddr:      getEnv("SMTP_LISTEN_ADDR", ":25"),
 		SMTPMaxMessageBytes: getEnvInt64("SMTP_MAX_MESSAGE_BYTES", 15*1024*1024),
 		SMTPAllowedDomain:   getEnv("SMTP_ALLOWED_RCPT_DOMAIN", "relay.local"),
 		AliasFilePath:       getEnv("ALIAS_FILE_PATH", "./config/aliases.json"),
