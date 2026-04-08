@@ -29,3 +29,6 @@ Note: port `25` is the standard SMTP port for inter-server delivery. On Linux, b
 
 
 SMTP AUTH: relay mode does not require authentication. If a client attempts `AUTH PLAIN`, any username/password is accepted.
+
+
+SMTP server does not perform outgoing SMTP delivery and does not forward emails to external recipient domains; it only converts accepted inbound messages to MAX sends.

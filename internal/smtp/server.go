@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strings"
 
 	gosmtp "github.com/emersion/go-smtp"
 
@@ -82,6 +83,9 @@ func (s *session) Mail(from string, _ *gosmtp.MailOptions) error {
 }
 
 func (s *session) Rcpt(to string, _ *gosmtp.RcptOptions) error {
+	if !isAllowedRecipient(to, s.backend.domain) {
+		return fmt.Errorf("recipient domain is not allowed")
+	}
 	s.rcpt = append(s.rcpt, to)
 	return nil
 }
@@ -107,3 +111,9 @@ func (s *session) Data(r io.Reader) error {
 func (s *session) Reset() {}
 
 func (s *session) Logout() error { return nil }
+
+func isAllowedRecipient(addr, allowedDomain string) bool {
+	a := strings.TrimSpace(strings.ToLower(addr))
+	a = strings.Trim(a, "<>")
+	return strings.HasSuffix(a, "@"+strings.ToLower(strings.TrimSpace(allowedDomain)))
+}

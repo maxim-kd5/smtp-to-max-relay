@@ -195,3 +195,31 @@ func mustWriteLine(t *testing.T, w *bufio.Writer, line string) {
 		t.Fatalf("flush failed: %v", err)
 	}
 }
+
+func TestIntegration_SMTPClientRejectsExternalRecipientDomain(t *testing.T) {
+	addr, stop, sender := startTestServer(t)
+	defer stop()
+
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("dial failed: %v", err)
+	}
+	defer conn.Close()
+
+	r := bufio.NewReader(conn)
+	w := bufio.NewWriter(conn)
+
+	mustReadPrefix(t, r, "220")
+	mustWriteLine(t, w, "HELO ext-client")
+	mustReadPrefix(t, r, "250")
+	mustWriteLine(t, w, "MAIL FROM:<ext@example.com>")
+	mustReadPrefix(t, r, "250")
+	mustWriteLine(t, w, "RCPT TO:<someone@example.com>")
+	mustReadPrefix(t, r, "550")
+	mustWriteLine(t, w, "QUIT")
+	mustReadPrefix(t, r, "221")
+
+	if sender.textCount() != 0 {
+		t.Fatalf("expected no relayed messages, got %d", sender.textCount())
+	}
+}
