@@ -51,3 +51,6 @@ docker compose up -d --build
 In the provided compose example SMTP is exposed as `25:2525` (host port 25 -> container port 2525).
 
 Example compose file is available at `docker-compose.yml`.
+
+
+CI also pushes container images to GHCR on non-PR runs with tags `sha-<commit>` and `latest` (for `main`).
