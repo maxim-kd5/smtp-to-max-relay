@@ -1,0 +1,24 @@
+version: "3.9"
+
+services:
+  smtp-to-max-relay:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smtp-to-max-relay
+    restart: unless-stopped
+    ports:
+      - "25:2525"
+      - "9090:9090"
+    environment:
+      SMTP_LISTEN_ADDR: ":2525"
+      SMTP_ALLOWED_RCPT_DOMAIN: "relay.local"
+      ALIAS_FILE_PATH: "/app/config/aliases.json"
+      MAX_SENDER_MODE: "http"
+      MAX_API_BASE_URL: "https://api.max.example"
+      MAX_BOT_TOKEN: "replace-with-real-token"
+      RELAY_MAX_RETRIES: "2"
+      RELAY_RETRY_DELAY_MS: "300"
+      METRICS_LISTEN_ADDR: ":9090"
+    volumes:
+      - ./config/aliases.json:/app/config/aliases.json:ro
