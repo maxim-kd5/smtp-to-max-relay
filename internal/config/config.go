@@ -18,6 +18,7 @@ type Config struct {
 	MaxSendTimeout      time.Duration
 	RelayMaxRetries     int
 	RelayRetryDelay     time.Duration
+	MetricsListenAddr   string
 }
 
 func Load() (Config, error) {
@@ -32,6 +33,7 @@ func Load() (Config, error) {
 		MaxSendTimeout:      time.Duration(getEnvInt("MAX_SEND_TIMEOUT_SEC", 15)) * time.Second,
 		RelayMaxRetries:     getEnvInt("RELAY_MAX_RETRIES", 2),
 		RelayRetryDelay:     time.Duration(getEnvInt("RELAY_RETRY_DELAY_MS", 300)) * time.Millisecond,
+		MetricsListenAddr:   getEnv("METRICS_LISTEN_ADDR", ":9090"),
 	}
 
 	if cfg.SMTPAllowedDomain == "" {

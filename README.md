@@ -20,6 +20,7 @@ Environment variables:
 - `MAX_BOT_TOKEN` (required when `MAX_SENDER_MODE=http`)
 - `RELAY_MAX_RETRIES` (default `2`)
 - `RELAY_RETRY_DELAY_MS` (default `300`)
+- `METRICS_LISTEN_ADDR` (default `:9090`, set empty to disable)
 
 Current baseline uses a stub MAX sender and is ready for integration with `max-bot-api-client-go`.
 
