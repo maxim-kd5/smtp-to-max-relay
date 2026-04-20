@@ -77,3 +77,62 @@ func TestParseTooLarge(t *testing.T) {
 		t.Fatalf("expected size error")
 	}
 }
+
+func TestParseEncodedHeadersAndBase64Body(t *testing.T) {
+	raw := []byte(strings.Join([]string{
+		"Subject: =?utf-8?B?0YLQtdGB0YI=?=",
+		"From: =?utf-8?B?0JrRg9C00YDRj9Cy0YbQtdCy?= <nit@roskar.ru>",
+		"To: =?utf-8?B?0J/QvtC70YPRh9Cw0YLQtdC70Yw=?= <user@relay.local>",
+		"Content-Type: text/html; charset=utf-8",
+		"Content-Transfer-Encoding: base64",
+		"",
+		"PGRpdj7Qn9GA0LjQstC10YI8L2Rpdj4=",
+	}, "\r\n"))
+
+	p := NewParser(4096)
+	em, err := p.Parse(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if em.Subject != "тест" {
+		t.Fatalf("unexpected decoded subject: %q", em.Subject)
+	}
+	if em.From != "Кудрявцев <nit@roskar.ru>" {
+		t.Fatalf("unexpected decoded from: %q", em.From)
+	}
+	if em.To[0] != "Получатель <user@relay.local>" {
+		t.Fatalf("unexpected decoded to: %q", em.To[0])
+	}
+	if em.HTMLBody != "<div>Привет</div>" {
+		t.Fatalf("unexpected html body: %q", em.HTMLBody)
+	}
+}
+
+func TestParseMultipartQuotedPrintablePart(t *testing.T) {
+	raw := []byte(strings.Join([]string{
+		"Subject: Multipart qp",
+		"From: sender@example.com",
+		"To: user@relay.local",
+		"MIME-Version: 1.0",
+		"Content-Type: multipart/alternative; boundary=b1",
+		"",
+		"--b1",
+		"Content-Type: text/plain; charset=utf-8",
+		"Content-Transfer-Encoding: quoted-printable",
+		"",
+		"=D0=9F=D1=80=D0=B8=D0=B2=D0=B5=D1=82",
+		"--b1--",
+		"",
+	}, "\r\n"))
+
+	p := NewParser(4096)
+	em, err := p.Parse(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if em.TextBody != "Привет" {
+		t.Fatalf("unexpected decoded text body: %q", em.TextBody)
+	}
+}

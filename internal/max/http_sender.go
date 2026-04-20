@@ -52,8 +52,10 @@ type Subscription struct {
 }
 
 type Message struct {
-	ID   string
-	Text string
+	ID     string
+	Text   string
+	ChatID string
+	UserID string
 }
 
 func (s *HTTPSender) ListChats(ctx context.Context) ([]Chat, error) {
@@ -436,7 +438,12 @@ func parseMessagesResponse(body []byte) ([]Message, error) {
 		if text == "" {
 			text = "<no-text>"
 		}
-		out = append(out, Message{ID: msgID, Text: text})
+		out = append(out, Message{
+			ID:     msgID,
+			Text:   text,
+			ChatID: firstString(item, "chat_id", "chatId"),
+			UserID: firstString(item, "user_id", "sender_id", "author_id", "from_id", "sender.user_id", "sender.id", "author.id", "from.id"),
+		})
 	}
 	return out, nil
 }
@@ -496,16 +503,46 @@ func flattenToObjects(v any) []map[string]any {
 
 func firstString(m map[string]any, keys ...string) string {
 	for _, k := range keys {
-		if v, ok := m[k]; ok {
-			switch t := v.(type) {
-			case string:
-				if strings.TrimSpace(t) != "" {
-					return strings.TrimSpace(t)
+		if strings.Contains(k, ".") {
+			if nested := nestedValue(m, strings.Split(k, ".")...); nested != nil {
+				if s := toString(nested); s != "" {
+					return s
 				}
-			case float64:
-				return strconv.FormatInt(int64(t), 10)
+			}
+			continue
+		}
+		if v, ok := m[k]; ok {
+			if s := toString(v); s != "" {
+				return s
 			}
 		}
+	}
+	return ""
+}
+
+func nestedValue(m map[string]any, path ...string) any {
+	var cur any = m
+	for _, p := range path {
+		obj, ok := cur.(map[string]any)
+		if !ok {
+			return nil
+		}
+		cur, ok = obj[p]
+		if !ok {
+			return nil
+		}
+	}
+	return cur
+}
+
+func toString(v any) string {
+	switch t := v.(type) {
+	case string:
+		if strings.TrimSpace(t) != "" {
+			return strings.TrimSpace(t)
+		}
+	case float64:
+		return strconv.FormatInt(int64(t), 10)
 	}
 	return ""
 }
