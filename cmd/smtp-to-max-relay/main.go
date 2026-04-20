@@ -5,7 +5,9 @@ import (
 	"log"
 	"net/http"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
 
 	"smtp-to-max-relay/internal/config"
 	"smtp-to-max-relay/internal/email"
@@ -28,6 +30,7 @@ func main() {
 	}
 
 	var sender max.Sender
+	var httpSenderForAutoReply *max.HTTPSender
 	if cfg.MaxSenderMode == "http" {
 		httpSender, err := max.NewHTTPSender(cfg.MaxAPIBaseURL, cfg.MaxBotToken, cfg.MaxSendTimeout)
 		if err != nil {
@@ -72,6 +75,7 @@ func main() {
 				log.Printf("MAX subscription url=%q", s.URL)
 			}
 		}
+		httpSenderForAutoReply = httpSender
 	} else {
 		sender = max.NewStubSender()
 		log.Printf("using MAX sender mode=stub")
@@ -93,6 +97,10 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	if httpSenderForAutoReply != nil {
+		go runUserInfoAutoReply(ctx, httpSenderForAutoReply, cfg.SMTPAllowedDomain)
+	}
+
 	if cfg.MetricsListenAddr != "" {
 		go func() {
 			log.Printf("metrics listening on %s", cfg.MetricsListenAddr)
@@ -105,5 +113,63 @@ func main() {
 	log.Printf("starting smtp-to-max-relay on %s", cfg.SMTPListenAddr)
 	if err := server.ListenAndServe(ctx); err != nil {
 		log.Fatalf("server failed: %v", err)
+	}
+}
+
+func runUserInfoAutoReply(ctx context.Context, sender *max.HTTPSender, allowedDomain string) {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	seen := map[string]struct{}{}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		pollCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		chats, err := sender.ListChats(pollCtx)
+		cancel()
+		if err != nil {
+			log.Printf("auto-reply: list chats failed: %v", err)
+			continue
+		}
+
+		for _, c := range chats {
+			pollMessagesCtx, cancelMessages := context.WithTimeout(ctx, 10*time.Second)
+			messages, err := sender.ListMessagesByChat(pollMessagesCtx, c.ID, 10)
+			cancelMessages()
+			if err != nil {
+				continue
+			}
+			for _, msg := range messages {
+				msgID := strings.TrimSpace(msg.ID)
+				if msgID == "" {
+					continue
+				}
+				if _, ok := seen[msgID]; ok {
+					continue
+				}
+				seen[msgID] = struct{}{}
+
+				if !max.ShouldReplyWithUserInfo(msg.Text) {
+					continue
+				}
+
+				userID := strings.TrimSpace(msg.UserID)
+				if userID == "" {
+					userID = c.ID
+				}
+				reply := max.BuildUserInfoReply(userID, allowedDomain)
+				sendCtx, cancelSend := context.WithTimeout(ctx, 10*time.Second)
+				err := sender.SendText(sendCtx, c.ID, "", reply, true)
+				cancelSend()
+				if err != nil {
+					log.Printf("auto-reply: send failed chat_id=%s msg_id=%s err=%v", c.ID, msgID, err)
+				}
+			}
+		}
 	}
 }
