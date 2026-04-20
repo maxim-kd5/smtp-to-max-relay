@@ -54,3 +54,4 @@ Example compose file is available at `docker-compose.yml`.
 
 
 CI also pushes container images to GHCR on non-PR runs with tags `sha-<commit>` and `latest` (for `main`).
+

@@ -17,14 +17,16 @@ import (
 )
 
 type captureSender struct {
-	mu    sync.Mutex
-	texts []string
+	mu      sync.Mutex
+	texts   []string
+	chatIDs []string
 }
 
-func (c *captureSender) SendText(_ context.Context, _, _ string, text string, _ bool) error {
+func (c *captureSender) SendText(_ context.Context, chatID, _ string, text string, _ bool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.texts = append(c.texts, text)
+	c.chatIDs = append(c.chatIDs, chatID)
 	return nil
 }
 
@@ -36,6 +38,17 @@ func (c *captureSender) textCount() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.texts)
+}
+
+func (c *captureSender) hasChatID(chatID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, id := range c.chatIDs {
+		if id == chatID {
+			return true
+		}
+	}
+	return false
 }
 
 func TestIntegration_SMTPServerToSMTPServer(t *testing.T) {
@@ -221,5 +234,20 @@ func TestIntegration_SMTPClientRejectsExternalRecipientDomain(t *testing.T) {
 
 	if sender.textCount() != 0 {
 		t.Fatalf("expected no relayed messages, got %d", sender.textCount())
+	}
+}
+
+func TestIntegration_SMTPClientToSMTPServer_NegativeChatID(t *testing.T) {
+	addr, stop, sender := startTestServer(t)
+	defer stop()
+
+	msg := []byte("Subject: negative-chat-id\r\nFrom: cli@example.com\r\n\r\nhello")
+	if err := netsmtp.SendMail(addr, nil, "cli@example.com", []string{"-73211480961715@relay.local"}, msg); err != nil {
+		t.Fatalf("SendMail with negative chat id failed: %v", err)
+	}
+
+	waitForTexts(t, sender, 1)
+	if !sender.hasChatID("-73211480961715") {
+		t.Fatalf("expected relay to send to chat_id -73211480961715")
 	}
 }

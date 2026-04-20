@@ -35,6 +35,43 @@ func main() {
 		}
 		sender = httpSender
 		log.Printf("using MAX sender mode=http")
+		printChatsContext, cancel := context.WithTimeout(context.Background(), cfg.MaxSendTimeout)
+		chats, err := httpSender.ListChats(printChatsContext)
+		cancel()
+		if err != nil {
+			log.Printf("failed to list MAX chats: %v", err)
+		} else {
+			log.Printf("bot has access to %d chat(s):", len(chats))
+			for _, c := range chats {
+				log.Printf("MAX chat_id=%s title=%q", c.ID, c.Title)
+			}
+
+			for _, c := range chats {
+				printMessagesContext, cancelMessages := context.WithTimeout(context.Background(), cfg.MaxSendTimeout)
+				messages, err := httpSender.ListMessagesByChat(printMessagesContext, c.ID, 3)
+				cancelMessages()
+				if err != nil {
+					log.Printf("failed to list MAX messages for chat_id=%s: %v", c.ID, err)
+					continue
+				}
+				log.Printf("last %d message(s) for chat_id=%s:", len(messages), c.ID)
+				for _, msg := range messages {
+					log.Printf("MAX message_id=%s text=%q", msg.ID, msg.Text)
+				}
+			}
+		}
+
+		printSubscriptionsContext, cancelSubscriptions := context.WithTimeout(context.Background(), cfg.MaxSendTimeout)
+		subscriptions, err := httpSender.ListSubscriptions(printSubscriptionsContext)
+		cancelSubscriptions()
+		if err != nil {
+			log.Printf("failed to list MAX subscriptions: %v", err)
+		} else {
+			log.Printf("bot has %d subscription(s):", len(subscriptions))
+			for _, s := range subscriptions {
+				log.Printf("MAX subscription url=%q", s.URL)
+			}
+		}
 	} else {
 		sender = max.NewStubSender()
 		log.Printf("using MAX sender mode=stub")
