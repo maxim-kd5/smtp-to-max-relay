@@ -49,7 +49,7 @@ func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) err
 
 	text := fmt.Sprintf("📧 %s\nОт: %s\n\n%s", fallback(em.Subject, "(без темы)"), em.From, body)
 	if err := s.sendWithRetry(ctx, func() error {
-		return s.Sender.SendText(ctx, pr.ChatID, pr.ThreadID, text, pr.Silent)
+		return s.Sender.SendText(ctx, pr.ChatID, text, pr.Silent)
 	}); err != nil {
 		if s.Metrics != nil {
 			s.Metrics.IncFailed()
@@ -64,7 +64,7 @@ func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) err
 	for _, a := range em.Attachments {
 		att := a
 		if err := s.sendWithRetry(ctx, func() error {
-			return s.Sender.SendFile(ctx, pr.ChatID, pr.ThreadID, att, pr.Silent)
+			return s.Sender.SendFile(ctx, pr.ChatID, att, pr.Silent)
 		}); err != nil {
 			if s.Metrics != nil {
 				s.Metrics.IncFailed()

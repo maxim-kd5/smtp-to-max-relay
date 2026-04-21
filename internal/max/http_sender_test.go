@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -42,6 +43,25 @@ func TestHTTPSenderSendTextAndFile(t *testing.T) {
 		if r.Header.Get("Authorization") != "token-123" {
 			t.Fatalf("missing auth header")
 		}
+		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil {
+			t.Fatalf("parse content type: %v", err)
+		}
+		if mediaType != "multipart/form-data" {
+			t.Fatalf("unexpected content type: %q", mediaType)
+		}
+		if err := r.ParseMultipartForm(1024 * 1024); err != nil {
+			t.Fatalf("parse multipart form: %v", err)
+		}
+		if got := r.FormValue("chat_id"); got != "123" {
+			t.Fatalf("unexpected multipart chat_id: %q", got)
+		}
+		if got := r.FormValue("silent"); got != "false" {
+			t.Fatalf("unexpected multipart silent: %q", got)
+		}
+		if got := r.FormValue("thread_id"); got != "" {
+			t.Fatalf("did not expect thread_id field, got %q", got)
+		}
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -53,12 +73,12 @@ func TestHTTPSenderSendTextAndFile(t *testing.T) {
 		t.Fatalf("unexpected sender creation error: %v", err)
 	}
 
-	if err := sender.SendText(context.Background(), "123", "7", "hello", true); err != nil {
+	if err := sender.SendText(context.Background(), "123", "hello", true); err != nil {
 		t.Fatalf("SendText failed: %v", err)
 	}
 
 	att := email.Attachment{Filename: "a.txt", Data: []byte("abc")}
-	if err := sender.SendFile(context.Background(), "123", "7", att, false); err != nil {
+	if err := sender.SendFile(context.Background(), "123", att, false); err != nil {
 		t.Fatalf("SendFile failed: %v", err)
 	}
 }
@@ -82,10 +102,13 @@ func TestParseMessagesResponseExtractsUserID(t *testing.T) {
 
 func TestBuildUserInfoReply(t *testing.T) {
 	reply := BuildUserInfoReply("555", "relay.local")
-	for _, fragment := range []string{"Ваш ID: 555", "555@relay.local", "555!123@relay.local", "555.silent@relay.local"} {
+	for _, fragment := range []string{"555@relay.local", "555.silent@relay.local"} {
 		if !strings.Contains(reply, fragment) {
 			t.Fatalf("reply missing %q: %q", fragment, reply)
 		}
+	}
+	if strings.Contains(reply, "!123@relay.local") {
+		t.Fatalf("reply should not mention thread syntax: %q", reply)
 	}
 	if !ShouldReplyWithUserInfo("/help") {
 		t.Fatalf("expected /help to trigger auto-reply")

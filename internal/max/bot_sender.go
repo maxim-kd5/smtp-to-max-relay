@@ -45,13 +45,10 @@ func (s *BotSender) API() *maxbot.Api {
 	return s.api
 }
 
-func (s *BotSender) SendText(ctx context.Context, chatID, threadID, text string, silent bool) error {
+func (s *BotSender) SendText(ctx context.Context, chatID, text string, silent bool) error {
 	chatIDInt, err := parseChatID(chatID)
 	if err != nil {
 		return err
-	}
-	if strings.TrimSpace(threadID) != "" {
-		// MAX Bot API sends to a chat recipient; thread_id is ignored to preserve the current relay contract.
 	}
 
 	msg := maxbot.NewMessage().
@@ -65,13 +62,10 @@ func (s *BotSender) SendText(ctx context.Context, chatID, threadID, text string,
 	return nil
 }
 
-func (s *BotSender) SendFile(ctx context.Context, chatID, threadID string, a email.Attachment, silent bool) error {
+func (s *BotSender) SendFile(ctx context.Context, chatID string, a email.Attachment, silent bool) error {
 	chatIDInt, err := parseChatID(chatID)
 	if err != nil {
 		return err
-	}
-	if strings.TrimSpace(threadID) != "" {
-		// MAX Bot API sends to a chat recipient; thread_id is ignored to preserve the current relay contract.
 	}
 
 	fileName := strings.TrimSpace(a.Filename)

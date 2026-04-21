@@ -8,8 +8,8 @@ import (
 )
 
 type Sender interface {
-	SendText(ctx context.Context, chatID, threadID, text string, silent bool) error
-	SendFile(ctx context.Context, chatID, threadID string, a email.Attachment, silent bool) error
+	SendText(ctx context.Context, chatID, text string, silent bool) error
+	SendFile(ctx context.Context, chatID string, a email.Attachment, silent bool) error
 }
 
 type StubSender struct{}
@@ -18,12 +18,12 @@ func NewStubSender() *StubSender {
 	return &StubSender{}
 }
 
-func (s *StubSender) SendText(_ context.Context, chatID, threadID, text string, silent bool) error {
-	fmt.Printf("[MAX:TEXT] chat=%s thread=%s silent=%v text=%q\n", chatID, threadID, silent, text)
+func (s *StubSender) SendText(_ context.Context, chatID, text string, silent bool) error {
+	fmt.Printf("[MAX:TEXT] chat=%s silent=%v text=%q\n", chatID, silent, text)
 	return nil
 }
 
-func (s *StubSender) SendFile(_ context.Context, chatID, threadID string, a email.Attachment, silent bool) error {
-	fmt.Printf("[MAX:FILE] chat=%s thread=%s silent=%v file=%s size=%d\n", chatID, threadID, silent, a.Filename, a.SizeBytes)
+func (s *StubSender) SendFile(_ context.Context, chatID string, a email.Attachment, silent bool) error {
+	fmt.Printf("[MAX:FILE] chat=%s silent=%v file=%s size=%d\n", chatID, silent, a.Filename, a.SizeBytes)
 	return nil
 }

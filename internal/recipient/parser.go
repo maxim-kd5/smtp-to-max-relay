@@ -7,7 +7,6 @@ import (
 
 type ParsedRecipient struct {
 	ChatID   string
-	ThreadID string
 	Silent   bool
 	RawLocal string
 	RawAddr  string
@@ -55,16 +54,10 @@ func (p *parser) Parse(address string) (ParsedRecipient, error) {
 	}
 	pr.Silent = hasFlag(flags, "silent")
 
-	switch {
-	case strings.Contains(base, "!"):
-		x := strings.SplitN(base, "!", 2)
-		pr.ChatID, pr.ThreadID = x[0], x[1]
-	case strings.Contains(base, "_"):
-		x := strings.SplitN(base, "_", 2)
-		pr.ChatID, pr.ThreadID = x[0], x[1]
-	default:
-		pr.ChatID = base
+	if strings.Contains(base, "!") || strings.Contains(base, "_") {
+		return ParsedRecipient{}, fmt.Errorf("thread addressing is not supported: %s", address)
 	}
+	pr.ChatID = base
 
 	if pr.ChatID == "" {
 		return ParsedRecipient{}, fmt.Errorf("chat id is empty")

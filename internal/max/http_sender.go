@@ -172,14 +172,10 @@ func (s *HTTPSender) ListMessagesByChat(ctx context.Context, chatID string, coun
 	return messages, nil
 }
 
-func (s *HTTPSender) SendText(ctx context.Context, chatID, threadID, text string, silent bool) error {
+func (s *HTTPSender) SendText(ctx context.Context, chatID, text string, silent bool) error {
 	chatIDInt, err := strconv.ParseInt(strings.TrimSpace(chatID), 10, 64)
 	if err != nil {
 		return fmt.Errorf("invalid chat_id %q: %w", chatID, err)
-	}
-	if strings.TrimSpace(threadID) != "" {
-		// MAX /messages does not support thread_id parameter.
-		// Keep relay behavior predictable: ignore thread_id and send to chat.
 	}
 	payload := sendTextRequest{Text: text, Notify: !silent}
 	body, err := json.Marshal(payload)
@@ -218,14 +214,11 @@ func (s *HTTPSender) SendText(ctx context.Context, chatID, threadID, text string
 	return nil
 }
 
-func (s *HTTPSender) SendFile(ctx context.Context, chatID, threadID string, a email.Attachment, silent bool) error {
+func (s *HTTPSender) SendFile(ctx context.Context, chatID string, a email.Attachment, silent bool) error {
 	var b bytes.Buffer
 	w := multipart.NewWriter(&b)
 
 	_ = w.WriteField("chat_id", chatID)
-	if threadID != "" {
-		_ = w.WriteField("thread_id", threadID)
-	}
 	_ = w.WriteField("silent", fmt.Sprintf("%t", silent))
 
 	fileName := a.Filename

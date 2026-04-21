@@ -15,19 +15,19 @@ type fakeSender struct {
 	files []email.Attachment
 }
 
-func (f *fakeSender) SendText(_ context.Context, _, _, text string, _ bool) error {
+func (f *fakeSender) SendText(_ context.Context, _, text string, _ bool) error {
 	f.texts = append(f.texts, text)
 	return nil
 }
 
-func (f *fakeSender) SendFile(_ context.Context, _, _ string, a email.Attachment, _ bool) error {
+func (f *fakeSender) SendFile(_ context.Context, _ string, a email.Attachment, _ bool) error {
 	f.files = append(f.files, a)
 	return nil
 }
 
 func TestRelaySendsTextAndAttachment(t *testing.T) {
 	s := &Service{
-		Recipients: recipient.NewParser("relay.local", map[string]string{"alerts": "123!7.silent"}),
+		Recipients: recipient.NewParser("relay.local", map[string]string{"alerts": "123.silent"}),
 		Email:      email.NewParser(1024 * 1024),
 		Sender:     &fakeSender{},
 	}
@@ -52,7 +52,7 @@ type flakySender struct {
 	calls       int
 }
 
-func (f *flakySender) SendText(_ context.Context, _, _, _ string, _ bool) error {
+func (f *flakySender) SendText(_ context.Context, _, _ string, _ bool) error {
 	f.calls++
 	if f.calls <= f.failTextFor {
 		return errors.New("temporary")
@@ -60,7 +60,7 @@ func (f *flakySender) SendText(_ context.Context, _, _, _ string, _ bool) error 
 	return nil
 }
 
-func (f *flakySender) SendFile(_ context.Context, _, _ string, _ email.Attachment, _ bool) error {
+func (f *flakySender) SendFile(_ context.Context, _ string, _ email.Attachment, _ bool) error {
 	return nil
 }
 

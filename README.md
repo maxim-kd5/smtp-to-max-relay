@@ -24,6 +24,12 @@ Environment variables:
 
 `MAX_SENDER_MODE=botapi` uses `github.com/max-messenger/max-bot-api-client-go` for outgoing MAX messages, file uploads, and long polling bot updates.
 
+Recipient format:
+
+- `<chat-id>@<domain>` sends to a chat with notifications enabled
+- `<chat-id>.silent@<domain>` sends to a chat without notifications
+- Thread-style recipients like `<chat-id>!<thread-id>@<domain>` are not supported because MAX does not have message threads
+
 
 Note: port `25` is the standard SMTP port for inter-server delivery. On Linux, binding to privileged ports (<1024) may require root or additional capabilities; for local development you can set `SMTP_LISTEN_ADDR=:2525`.
 

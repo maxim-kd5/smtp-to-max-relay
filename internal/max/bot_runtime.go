@@ -87,7 +87,7 @@ func handleMessageCreatedUpdate(ctx context.Context, sender Sender, botUserID in
 	sendCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	if err := sender.SendText(sendCtx, strconv.FormatInt(chatID, 10), "", reply, true); err != nil {
+	if err := sender.SendText(sendCtx, strconv.FormatInt(chatID, 10), reply, true); err != nil {
 		log.Printf("MAX bot reply failed chat_id=%d: %v", chatID, err)
 	}
 }

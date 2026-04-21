@@ -87,12 +87,12 @@ func TestBotSenderSendTextAndFile(t *testing.T) {
 		t.Fatalf("NewBotSender failed: %v", err)
 	}
 
-	if err := sender.SendText(context.Background(), "123", "7", "hello", true); err != nil {
+	if err := sender.SendText(context.Background(), "123", "hello", true); err != nil {
 		t.Fatalf("SendText failed: %v", err)
 	}
 
 	att := email.Attachment{Filename: "a.txt", Data: []byte("abc")}
-	if err := sender.SendFile(context.Background(), "123", "7", att, false); err != nil {
+	if err := sender.SendFile(context.Background(), "123", att, false); err != nil {
 		t.Fatalf("SendFile failed: %v", err)
 	}
 

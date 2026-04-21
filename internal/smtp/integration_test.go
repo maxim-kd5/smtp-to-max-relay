@@ -22,7 +22,7 @@ type captureSender struct {
 	chatIDs []string
 }
 
-func (c *captureSender) SendText(_ context.Context, chatID, _ string, text string, _ bool) error {
+func (c *captureSender) SendText(_ context.Context, chatID, text string, _ bool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.texts = append(c.texts, text)
@@ -30,7 +30,7 @@ func (c *captureSender) SendText(_ context.Context, chatID, _ string, text strin
 	return nil
 }
 
-func (c *captureSender) SendFile(_ context.Context, _, _ string, _ email.Attachment, _ bool) error {
+func (c *captureSender) SendFile(_ context.Context, _ string, _ email.Attachment, _ bool) error {
 	return nil
 }
 
