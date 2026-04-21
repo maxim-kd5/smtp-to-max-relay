@@ -2,7 +2,10 @@ module smtp-to-max-relay
 
 go 1.23.0
 
-require github.com/jhillyerd/enmime v1.3.0
+require (
+	github.com/jhillyerd/enmime v1.3.0
+	github.com/max-messenger/max-bot-api-client-go v1.6.14
+)
 
 require (
 	github.com/cention-sany/utf7 v0.0.0-20170124080048-26cad61bd60a // indirect
@@ -16,3 +19,5 @@ require (
 	golang.org/x/net v0.23.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 )
+
+replace github.com/max-messenger/max-bot-api-client-go => ./third_party/max-bot-api-client-go

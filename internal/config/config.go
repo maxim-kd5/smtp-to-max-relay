@@ -42,11 +42,11 @@ func Load() (Config, error) {
 	if cfg.SMTPMaxMessageBytes <= 0 {
 		return Config{}, fmt.Errorf("SMTP_MAX_MESSAGE_BYTES must be positive")
 	}
-	if cfg.MaxSenderMode != "stub" && cfg.MaxSenderMode != "http" {
-		return Config{}, fmt.Errorf("MAX_SENDER_MODE must be one of: stub, http")
+	if cfg.MaxSenderMode != "stub" && cfg.MaxSenderMode != "http" && cfg.MaxSenderMode != "botapi" {
+		return Config{}, fmt.Errorf("MAX_SENDER_MODE must be one of: stub, http, botapi")
 	}
-	if cfg.MaxSenderMode == "http" && cfg.MaxAPIBaseURL == "" {
-		return Config{}, fmt.Errorf("MAX_API_BASE_URL must not be empty when MAX_SENDER_MODE=http")
+	if cfg.MaxSenderMode != "stub" && cfg.MaxBotToken == "" {
+		return Config{}, fmt.Errorf("MAX_BOT_TOKEN must not be empty when MAX_SENDER_MODE=%s", cfg.MaxSenderMode)
 	}
 	if cfg.RelayMaxRetries < 0 {
 		return Config{}, fmt.Errorf("RELAY_MAX_RETRIES must be >= 0")

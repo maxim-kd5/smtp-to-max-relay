@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -95,7 +96,7 @@ func (s *HTTPSender) ListSubscriptions(ctx context.Context) ([]Subscription, err
 	}
 	req.Header.Set("Authorization", s.token)
 
-	resp, err := s.client.Do(req)
+	resp, err := s.do(req)
 	if err != nil {
 		return nil, fmt.Errorf("list subscriptions request: %w", err)
 	}
@@ -148,7 +149,7 @@ func (s *HTTPSender) ListMessagesByChat(ctx context.Context, chatID string, coun
 	}
 	req.Header.Set("Authorization", s.token)
 
-	resp, err := s.client.Do(req)
+	resp, err := s.do(req)
 	if err != nil {
 		return nil, fmt.Errorf("list messages request: %w", err)
 	}
@@ -205,7 +206,7 @@ func (s *HTTPSender) SendText(ctx context.Context, chatID, threadID, text string
 	req.Header.Set("Authorization", s.token)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.client.Do(req)
+	resp, err := s.do(req)
 	if err != nil {
 		return fmt.Errorf("send text request: %w", err)
 	}
@@ -255,7 +256,7 @@ func (s *HTTPSender) SendFile(ctx context.Context, chatID, threadID string, a em
 	req.Header.Set("Authorization", s.token)
 	req.Header.Set("Content-Type", w.FormDataContentType())
 
-	resp, err := s.client.Do(req)
+	resp, err := s.do(req)
 	if err != nil {
 		return fmt.Errorf("send file request: %w", err)
 	}
@@ -276,6 +277,24 @@ func (s *HTTPSender) endpointURL(p string) (string, error) {
 	return u.String(), nil
 }
 
+func (s *HTTPSender) do(req *http.Request) (*http.Response, error) {
+	start := time.Now()
+	log.Printf("MAX API request: %s %s", req.Method, req.URL.String())
+	resp, err := s.client.Do(req)
+	if err != nil {
+		log.Printf("MAX API error: %s %s err=%v", req.Method, req.URL.String(), err)
+		return nil, err
+	}
+	log.Printf(
+		"MAX API response: %s %s status=%d duration=%s",
+		req.Method,
+		req.URL.String(),
+		resp.StatusCode,
+		time.Since(start).Round(time.Millisecond),
+	)
+	return resp, nil
+}
+
 func (s *HTTPSender) listChatsByPath(ctx context.Context, endpointPath string) ([]Chat, error) {
 	u, err := s.endpointURL(endpointPath)
 	if err != nil {
@@ -287,7 +306,7 @@ func (s *HTTPSender) listChatsByPath(ctx context.Context, endpointPath string) (
 	}
 	req.Header.Set("Authorization", s.token)
 
-	resp, err := s.client.Do(req)
+	resp, err := s.do(req)
 	if err != nil {
 		return nil, fmt.Errorf("list chats request to %q: %w", endpointPath, err)
 	}
@@ -342,7 +361,7 @@ func (s *HTTPSender) listChatsPaginated(ctx context.Context) ([]Chat, error) {
 		}
 		req.Header.Set("Authorization", s.token)
 
-		resp, err := s.client.Do(req)
+		resp, err := s.do(req)
 		if err != nil {
 			return nil, fmt.Errorf("paginated chats request: %w", err)
 		}
@@ -402,9 +421,9 @@ func parseSubscriptionsResponse(body []byte) ([]Subscription, error) {
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, err
 	}
-	items := flattenToObjects(raw["subscriptions"])
+	items := firstNonEmptyObjects(raw["subscriptions"], raw["items"], raw["results"], raw["data"], raw)
 	if len(items) == 0 {
-		return nil, fmt.Errorf("no subscriptions in response")
+		return []Subscription{}, nil
 	}
 
 	out := make([]Subscription, 0, len(items))
@@ -423,9 +442,9 @@ func parseMessagesResponse(body []byte) ([]Message, error) {
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, err
 	}
-	items := flattenToObjects(raw["messages"])
+	items := firstNonEmptyObjects(raw["messages"], raw["items"], raw["results"], raw["data"], raw)
 	if len(items) == 0 {
-		return nil, fmt.Errorf("no messages in response")
+		return []Message{}, nil
 	}
 
 	out := make([]Message, 0, len(items))
@@ -434,7 +453,7 @@ func parseMessagesResponse(body []byte) ([]Message, error) {
 		if msgID == "" {
 			msgID = "<no-id>"
 		}
-		text := firstString(item, "text", "body")
+		text := firstString(item, "text", "body", "message", "body.text", "content.text")
 		out = append(out, Message{
 			ID:     msgID,
 			Text:   text,
@@ -496,6 +515,15 @@ func flattenToObjects(v any) []map[string]any {
 	default:
 		return nil
 	}
+}
+
+func firstNonEmptyObjects(values ...any) []map[string]any {
+	for _, v := range values {
+		if items := flattenToObjects(v); len(items) > 0 {
+			return items
+		}
+	}
+	return nil
 }
 
 func firstString(m map[string]any, keys ...string) string {
