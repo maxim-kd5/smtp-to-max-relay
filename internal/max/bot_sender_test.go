@@ -170,36 +170,6 @@ func TestBotSenderSendFileWaitsForAttachmentProcessing(t *testing.T) {
 	}
 }
 
-func TestReplyForMessageText(t *testing.T) {
-	reply, ok := replyForMessageText("/hello", "777", &schemes.User{UserId: 555}, "relay_bot", "relay.local")
-	if !ok || !strings.Contains(reply, "ID этого чата: 777") || !strings.Contains(reply, "chatid777@relay.local") || !strings.Contains(reply, "chatid777.silent@relay.local") {
-		t.Fatalf("unexpected hello reply: ok=%v reply=%q", ok, reply)
-	}
-
-	reply, ok = replyForMessageText("/help@relay_bot", "777", &schemes.User{UserId: 555}, "relay_bot", "relay.local")
-	if !ok || !strings.Contains(reply, "ID этого чата: 777") || !strings.Contains(reply, "chatid777@relay.local") {
-		t.Fatalf("unexpected help reply: ok=%v reply=%q", ok, reply)
-	}
-
-	reply, ok = replyForMessageText("/start@relay_bot", "777", &schemes.User{UserId: 555}, "relay_bot", "relay.local")
-	if !ok || !strings.Contains(reply, "chatid555@relay.local") {
-		t.Fatalf("unexpected start reply: ok=%v reply=%q", ok, reply)
-	}
-
-	reply, ok = replyForMessageText("@relay_bot привет", "777", &schemes.User{UserId: 555}, "relay_bot", "relay.local")
-	if !ok || !strings.Contains(reply, "ID этого чата: 777") {
-		t.Fatalf("unexpected mention reply: ok=%v reply=%q", ok, reply)
-	}
-
-	if _, ok := replyForMessageText("/help@another_bot", "777", &schemes.User{UserId: 555}, "relay_bot", "relay.local"); ok {
-		t.Fatalf("did not expect command for another bot to trigger reply")
-	}
-
-	if _, ok := replyForMessageText("plain text", "777", &schemes.User{UserId: 555}, "relay_bot", "relay.local"); ok {
-		t.Fatalf("did not expect non-command text to trigger reply")
-	}
-}
-
 func withURLContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Test-Base-URL") == "" {

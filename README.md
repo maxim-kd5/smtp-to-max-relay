@@ -15,7 +15,7 @@ Environment variables:
 - `SMTP_MAX_MESSAGE_BYTES` (default `15728640`)
 - `SMTP_ALLOWED_RCPT_DOMAIN` (default `relay.local`)
 - `ALIAS_FILE_PATH` (default `./config/aliases.json`)
-- `MAX_SENDER_MODE` (`stub` by default, options: `stub`, `botapi`, `http`; `http` is kept as a legacy alias)
+- `MAX_SENDER_MODE` (`stub` by default, options: `stub`, `botapi`)
 - `MAX_API_BASE_URL` (optional; when empty, the official MAX Bot API base URL is used)
 - `MAX_BOT_TOKEN` (required when `MAX_SENDER_MODE` is not `stub`)
 - `RELAY_MAX_RETRIES` (default `2`)
@@ -31,20 +31,16 @@ Recipient format:
 - `chatid-<abs-chat-id>@<domain>` is the uniform format for negative chat IDs
 - Thread-style recipients like `<chat-id>!<thread-id>@<domain>` are not supported because MAX does not have message threads
 
-
 Note: port `25` is the standard SMTP port for inter-server delivery. On Linux, binding to privileged ports (<1024) may require root or additional capabilities; for local development you can set `SMTP_LISTEN_ADDR=:2525`.
-
 
 SMTP AUTH: relay mode does not require authentication. If a client attempts `AUTH PLAIN`, any username/password is accepted.
 
-
 SMTP server does not perform outgoing SMTP delivery and does not forward emails to external recipient domains; it only converts accepted inbound messages to MAX sends.
 
+When `MAX_SENDER_MODE=botapi`, the service also receives bot updates and replies to:
 
-When `MAX_SENDER_MODE=botapi` (or legacy `http`), the service also receives bot updates and replies to:
-
-- `/hello` with a greeting
-- `/start` and `/help` with the user's id and example email addresses that can be used to deliver into MAX via this relay
+- `/start` with the user's personal relay address and MAX user ID
+- `/hello`, `/help`, or bot mentions in chat with the relay address of the current chat
 
 
 ## Docker
@@ -64,6 +60,5 @@ docker compose up -d --build
 In the provided compose example SMTP is exposed as `25:2525` (host port 25 -> container port 2525).
 
 Example compose file is available at `docker-compose.yml`.
-
 
 CI also pushes container images to GHCR on non-PR runs with tags `sha-<commit>` and `latest` (for `main`).

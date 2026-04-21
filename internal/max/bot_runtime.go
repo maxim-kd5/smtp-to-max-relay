@@ -10,10 +10,6 @@ import (
 	"github.com/max-messenger/max-bot-api-client-go/schemes"
 )
 
-func RunBotLoop(ctx context.Context, api *maxbot.Api, sender Sender, botUserID int64, allowedDomain string) {
-	RunBotLoopWithUsername(ctx, api, sender, botUserID, "", allowedDomain)
-}
-
 func RunBotLoopWithUsername(ctx context.Context, api *maxbot.Api, sender Sender, botUserID int64, botUsername, allowedDomain string) {
 	if api == nil || sender == nil {
 		return

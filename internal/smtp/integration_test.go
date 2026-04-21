@@ -115,6 +115,26 @@ func TestIntegration_SMTPClientToSMTPServer_WithAnyAuth(t *testing.T) {
 	waitForTexts(t, sender, 1)
 }
 
+func TestIntegration_SMTPServerAdvertisesConfiguredSize(t *testing.T) {
+	addr, stop, _ := startTestServer(t)
+	defer stop()
+
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("dial failed: %v", err)
+	}
+	defer conn.Close()
+
+	r := bufio.NewReader(conn)
+	w := bufio.NewWriter(conn)
+
+	mustReadPrefix(t, r, "220")
+	mustWriteLine(t, w, "EHLO size-check")
+	mustReadExactLine(t, r, "250-Hello")
+	mustReadExactLine(t, r, "250-AUTH PLAIN")
+	mustReadExactLine(t, r, fmt.Sprintf("250 SIZE %d", 1024*1024))
+}
+
 func startTestServer(t *testing.T) (string, func(), *captureSender) {
 	t.Helper()
 
@@ -196,6 +216,18 @@ func mustReadPrefix(t *testing.T, r *bufio.Reader, prefix string) {
 	}
 	if !strings.HasPrefix(line, prefix) {
 		t.Fatalf("unexpected response: %q (expected prefix %s)", strings.TrimSpace(line), prefix)
+	}
+}
+
+func mustReadExactLine(t *testing.T, r *bufio.Reader, want string) {
+	t.Helper()
+	line, err := r.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read response failed: %v", err)
+	}
+	got := strings.TrimSpace(line)
+	if got != want {
+		t.Fatalf("unexpected response: %q (expected %q)", got, want)
 	}
 }
 

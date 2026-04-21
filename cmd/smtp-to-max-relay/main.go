@@ -35,7 +35,7 @@ func main() {
 	)
 
 	switch cfg.MaxSenderMode {
-	case "http", "botapi":
+	case "botapi":
 		botSender, err = max.NewBotSender(cfg.MaxAPIBaseURL, cfg.MaxBotToken, cfg.MaxSendTimeout)
 		if err != nil {
 			log.Fatalf("max sender error: %v", err)

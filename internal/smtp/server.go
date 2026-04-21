@@ -91,7 +91,7 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 		case strings.HasPrefix(ucmd, "EHLO"):
 			writeLine(w, "250-Hello")
 			writeLine(w, "250-AUTH PLAIN")
-			writeLine(w, "250 SIZE 15728640")
+			writeLine(w, fmt.Sprintf("250 SIZE %d", s.maxBytes))
 
 		case strings.HasPrefix(ucmd, "HELO"):
 			writeLine(w, "250 Hello")
