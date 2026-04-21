@@ -117,6 +117,12 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 				writeLine(w, "550 recipient domain is not allowed")
 				continue
 			}
+			if s.relaySvc != nil && s.relaySvc.Recipients != nil {
+				if _, err := s.relaySvc.Recipients.Parse(addr); err != nil {
+					writeLine(w, "550 recipient is invalid")
+					continue
+				}
+			}
 			rcpts = append(rcpts, addr)
 			writeLine(w, "250 OK")
 

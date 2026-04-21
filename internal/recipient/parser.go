@@ -5,6 +5,10 @@ import (
 	"strings"
 )
 
+const (
+	chatIDPrefix = "chatid"
+)
+
 type ParsedRecipient struct {
 	ChatID   string
 	Silent   bool
@@ -54,10 +58,11 @@ func (p *parser) Parse(address string) (ParsedRecipient, error) {
 	}
 	pr.Silent = hasFlag(flags, "silent")
 
-	if strings.Contains(base, "!") || strings.Contains(base, "_") {
-		return ParsedRecipient{}, fmt.Errorf("thread addressing is not supported: %s", address)
+	chatID, err := parseChatIDBase(base, address)
+	if err != nil {
+		return ParsedRecipient{}, err
 	}
-	pr.ChatID = base
+	pr.ChatID = chatID
 
 	if pr.ChatID == "" {
 		return ParsedRecipient{}, fmt.Errorf("chat id is empty")
@@ -76,4 +81,38 @@ func hasFlag(flags, target string) bool {
 		}
 	}
 	return false
+}
+
+func parseChatIDBase(base, address string) (string, error) {
+	if strings.HasPrefix(base, chatIDPrefix) {
+		return parsePrefixedChatID(strings.TrimPrefix(base, chatIDPrefix), address)
+	}
+
+	if strings.Contains(base, "!") || strings.Contains(base, "_") {
+		return "", fmt.Errorf("thread addressing is not supported: %s", address)
+	}
+	return "", fmt.Errorf("recipient must use chatid format: %s", address)
+}
+
+func parsePrefixedChatID(value, address string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("chat id is empty: %s", address)
+	}
+	negative := strings.HasPrefix(value, "-")
+	if negative {
+		value = strings.TrimPrefix(value, "-")
+		if value == "" {
+			return "", fmt.Errorf("chat id is empty: %s", address)
+		}
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return "", fmt.Errorf("invalid prefixed chat id: %s", address)
+		}
+	}
+	if negative {
+		return "-" + value, nil
+	}
+	return value, nil
 }

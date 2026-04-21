@@ -102,10 +102,13 @@ func TestParseMessagesResponseExtractsUserID(t *testing.T) {
 
 func TestBuildUserInfoReply(t *testing.T) {
 	reply := BuildUserInfoReply("555", "relay.local")
-	for _, fragment := range []string{"555@relay.local", "555.silent@relay.local"} {
+	for _, fragment := range []string{"chatid555@relay.local", "chatid555.silent@relay.local"} {
 		if !strings.Contains(reply, fragment) {
 			t.Fatalf("reply missing %q: %q", fragment, reply)
 		}
+	}
+	if strings.Contains(reply, "— 555@relay.local") || strings.Contains(reply, "— 555.silent@relay.local") {
+		t.Fatalf("reply should use uniform chatid format: %q", reply)
 	}
 	if strings.Contains(reply, "!123@relay.local") {
 		t.Fatalf("reply should not mention thread syntax: %q", reply)
@@ -124,5 +127,12 @@ func TestBuildUserInfoReply(t *testing.T) {
 	}
 	if ShouldReplyWithUserInfo("hello") {
 		t.Fatalf("did not expect generic text to trigger auto-reply")
+	}
+}
+
+func TestBuildChatInfoReplyUsesSafeAddressForNegativeChatID(t *testing.T) {
+	reply := BuildChatInfoReply("-73211480961715", "relay.local")
+	if !strings.Contains(reply, "chatid-73211480961715@relay.local") {
+		t.Fatalf("reply missing safe negative chat address: %q", reply)
 	}
 }

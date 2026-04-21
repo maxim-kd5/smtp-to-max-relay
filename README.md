@@ -26,8 +26,9 @@ Environment variables:
 
 Recipient format:
 
-- `<chat-id>@<domain>` sends to a chat with notifications enabled
-- `<chat-id>.silent@<domain>` sends to a chat without notifications
+- `chatid<chat-id>@<domain>` sends to a chat with notifications enabled
+- `chatid<chat-id>.silent@<domain>` sends to a chat without notifications
+- `chatid-<abs-chat-id>@<domain>` is the uniform format for negative chat IDs
 - Thread-style recipients like `<chat-id>!<thread-id>@<domain>` are not supported because MAX does not have message threads
 
 

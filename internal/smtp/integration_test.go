@@ -69,7 +69,7 @@ func TestIntegration_SMTPServerToSMTPServer(t *testing.T) {
 	mustReadPrefix(t, r, "250")
 	mustWriteLine(t, w, "MAIL FROM:<srv@example.com>")
 	mustReadPrefix(t, r, "250")
-	mustWriteLine(t, w, "RCPT TO:<123@relay.local>")
+	mustWriteLine(t, w, "RCPT TO:<chatid123@relay.local>")
 	mustReadPrefix(t, r, "250")
 	mustWriteLine(t, w, "DATA")
 	mustReadPrefix(t, r, "354")
@@ -90,7 +90,7 @@ func TestIntegration_SMTPClientToSMTPServer_NoAuth(t *testing.T) {
 	defer stop()
 
 	msg := []byte("Subject: client-no-auth\r\nFrom: cli@example.com\r\n\r\nhello")
-	if err := netsmtp.SendMail(addr, nil, "cli@example.com", []string{"123@relay.local"}, msg); err != nil {
+	if err := netsmtp.SendMail(addr, nil, "cli@example.com", []string{"chatid123@relay.local"}, msg); err != nil {
 		t.Fatalf("SendMail without auth failed: %v", err)
 	}
 
@@ -108,7 +108,7 @@ func TestIntegration_SMTPClientToSMTPServer_WithAnyAuth(t *testing.T) {
 	auth := netsmtp.PlainAuth("", "any-user", "any-pass", host)
 
 	msg := []byte("Subject: client-auth\r\nFrom: auth@example.com\r\n\r\nhello")
-	if err := netsmtp.SendMail(addr, auth, "auth@example.com", []string{"123@relay.local"}, msg); err != nil {
+	if err := netsmtp.SendMail(addr, auth, "auth@example.com", []string{"chatid123@relay.local"}, msg); err != nil {
 		t.Fatalf("SendMail with auth failed: %v", err)
 	}
 
@@ -237,17 +237,45 @@ func TestIntegration_SMTPClientRejectsExternalRecipientDomain(t *testing.T) {
 	}
 }
 
-func TestIntegration_SMTPClientToSMTPServer_NegativeChatID(t *testing.T) {
+func TestIntegration_SMTPClientToSMTPServer_NegativeChatIDWithPrefix(t *testing.T) {
 	addr, stop, sender := startTestServer(t)
 	defer stop()
 
-	msg := []byte("Subject: negative-chat-id\r\nFrom: cli@example.com\r\n\r\nhello")
-	if err := netsmtp.SendMail(addr, nil, "cli@example.com", []string{"-73211480961715@relay.local"}, msg); err != nil {
-		t.Fatalf("SendMail with negative chat id failed: %v", err)
+	msg := []byte("Subject: negative-chat-id-prefixed\r\nFrom: cli@example.com\r\n\r\nhello")
+	if err := netsmtp.SendMail(addr, nil, "cli@example.com", []string{"chatid-73211480961715@relay.local"}, msg); err != nil {
+		t.Fatalf("SendMail with prefixed negative chat id failed: %v", err)
 	}
 
 	waitForTexts(t, sender, 1)
 	if !sender.hasChatID("-73211480961715") {
 		t.Fatalf("expected relay to send to chat_id -73211480961715")
+	}
+}
+
+func TestIntegration_SMTPClientRejectsPlainNumericChatID(t *testing.T) {
+	addr, stop, sender := startTestServer(t)
+	defer stop()
+
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("dial failed: %v", err)
+	}
+	defer conn.Close()
+
+	r := bufio.NewReader(conn)
+	w := bufio.NewWriter(conn)
+
+	mustReadPrefix(t, r, "220")
+	mustWriteLine(t, w, "HELO numeric-client")
+	mustReadPrefix(t, r, "250")
+	mustWriteLine(t, w, "MAIL FROM:<cli@example.com>")
+	mustReadPrefix(t, r, "250")
+	mustWriteLine(t, w, "RCPT TO:<123@relay.local>")
+	mustReadPrefix(t, r, "550")
+	mustWriteLine(t, w, "QUIT")
+	mustReadPrefix(t, r, "221")
+
+	if sender.textCount() != 0 {
+		t.Fatalf("expected no relayed messages, got %d", sender.textCount())
 	}
 }

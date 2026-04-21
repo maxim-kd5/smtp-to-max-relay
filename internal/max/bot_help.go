@@ -11,8 +11,8 @@ const (
 Как пользоваться:
 
 • Отправь письмо на один из адресов:
-— %[1]s@%[2]s — с уведомлением
-— %[1]s.silent@%[2]s — без уведомления
+— %[3]s@%[2]s — с уведомлением
+— %[3]s.silent@%[2]s — без уведомления
 
 • Всё, что ты напишешь в письме (тема и текст), появится в этом чате
 • Отправителя можно указать любого — он отобразится в сообщении
@@ -28,13 +28,13 @@ ID этого чата: %[1]s
 Примеры отправки:
 
 PowerShell:
-Send-MailMessage -SmtpServer "%[2]s" -Port 25 -From "test@test.loc" -To "%[1]s@%[2]s" -Subject "Test" -Body "Message text"
+Send-MailMessage -SmtpServer "%[2]s" -Port 25 -From "test@test.loc" -To "%[3]s@%[2]s" -Subject "Test" -Body "Message text"
 
 curl:
-curl smtp://%[2]s:25 --mail-from "test@test.loc" --mail-rcpt "%[1]s@%[2]s" --upload-file - <<EOF
+curl smtp://%[2]s:25 --mail-from "test@test.loc" --mail-rcpt "%[3]s@%[2]s" --upload-file - <<EOF
 Subject: Test
 From: test@test.loc
-To: %[1]s@%[2]s
+To: %[3]s@%[2]s
 
 Message text
 EOF
@@ -116,6 +116,7 @@ func BuildUserInfoReply(userID, allowedDomain string) string {
 		chatInfoReply,
 		id,
 		domain,
+		chatAddressLocalPart(id),
 	)
 }
 
@@ -133,5 +134,14 @@ func BuildChatInfoReply(chatID, allowedDomain string) string {
 		chatInfoReply,
 		id,
 		domain,
+		chatAddressLocalPart(id),
 	)
+}
+
+func chatAddressLocalPart(id string) string {
+	value := strings.TrimSpace(id)
+	if value == "" || value == "<unknown>" {
+		return "chatidunknown"
+	}
+	return "chatid" + value
 }

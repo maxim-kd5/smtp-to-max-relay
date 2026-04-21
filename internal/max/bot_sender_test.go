@@ -172,17 +172,17 @@ func TestBotSenderSendFileWaitsForAttachmentProcessing(t *testing.T) {
 
 func TestReplyForMessageText(t *testing.T) {
 	reply, ok := replyForMessageText("/hello", "777", &schemes.User{UserId: 555}, "relay_bot", "relay.local")
-	if !ok || !strings.Contains(reply, "ID этого чата: 777") || !strings.Contains(reply, "777@relay.local") || !strings.Contains(reply, "777.silent@relay.local") {
+	if !ok || !strings.Contains(reply, "ID этого чата: 777") || !strings.Contains(reply, "chatid777@relay.local") || !strings.Contains(reply, "chatid777.silent@relay.local") {
 		t.Fatalf("unexpected hello reply: ok=%v reply=%q", ok, reply)
 	}
 
 	reply, ok = replyForMessageText("/help@relay_bot", "777", &schemes.User{UserId: 555}, "relay_bot", "relay.local")
-	if !ok || !strings.Contains(reply, "ID этого чата: 777") || !strings.Contains(reply, "777@relay.local") {
+	if !ok || !strings.Contains(reply, "ID этого чата: 777") || !strings.Contains(reply, "chatid777@relay.local") {
 		t.Fatalf("unexpected help reply: ok=%v reply=%q", ok, reply)
 	}
 
 	reply, ok = replyForMessageText("/start@relay_bot", "777", &schemes.User{UserId: 555}, "relay_bot", "relay.local")
-	if !ok || !strings.Contains(reply, "555@relay.local") {
+	if !ok || !strings.Contains(reply, "chatid555@relay.local") {
 		t.Fatalf("unexpected start reply: ok=%v reply=%q", ok, reply)
 	}
 

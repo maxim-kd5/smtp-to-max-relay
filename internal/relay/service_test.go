@@ -29,7 +29,7 @@ func (f *fakeSender) SendFile(_ context.Context, _ string, a email.Attachment, _
 
 func TestRelaySendsTextAndAttachment(t *testing.T) {
 	s := &Service{
-		Recipients: recipient.NewParser("relay.local", map[string]string{"alerts": "123.silent"}),
+		Recipients: recipient.NewParser("relay.local", map[string]string{"alerts": "chatid123.silent"}),
 		Email:      email.NewParser(1024 * 1024),
 		Sender:     &fakeSender{},
 	}
@@ -77,7 +77,7 @@ func TestRelayRetriesOnTemporarySenderError(t *testing.T) {
 	}
 
 	raw := []byte("Subject: Retry\r\nFrom: sender@example.com\r\nContent-Type: text/plain\r\n\r\nBody")
-	if err := s.Relay(context.Background(), "123@relay.local", raw); err != nil {
+	if err := s.Relay(context.Background(), "chatid123@relay.local", raw); err != nil {
 		t.Fatalf("relay should succeed after retry, got err: %v", err)
 	}
 	if flaky.calls != 2 {
@@ -94,7 +94,7 @@ func TestRelaySplitsLongTextMessages(t *testing.T) {
 	}
 
 	raw := []byte(fmt.Sprintf("Subject: Long\r\nFrom: sender@example.com\r\nContent-Type: text/plain\r\n\r\n%s", body))
-	if err := s.Relay(context.Background(), "123@relay.local", raw); err != nil {
+	if err := s.Relay(context.Background(), "chatid123@relay.local", raw); err != nil {
 		t.Fatalf("relay failed: %v", err)
 	}
 
