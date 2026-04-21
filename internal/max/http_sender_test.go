@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,5 +60,43 @@ func TestHTTPSenderSendTextAndFile(t *testing.T) {
 	att := email.Attachment{Filename: "a.txt", Data: []byte("abc")}
 	if err := sender.SendFile(context.Background(), "123", "7", att, false); err != nil {
 		t.Fatalf("SendFile failed: %v", err)
+	}
+}
+
+func TestParseMessagesResponseExtractsUserID(t *testing.T) {
+	body := []byte(`{"messages":[{"id":"m1","text":"/help","chat_id":"777","sender":{"id":"555"}}]}`)
+	msgs, err := parseMessagesResponse(body)
+	if err != nil {
+		t.Fatalf("parseMessagesResponse failed: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("expected one message, got %d", len(msgs))
+	}
+	if msgs[0].UserID != "555" {
+		t.Fatalf("unexpected user id: %q", msgs[0].UserID)
+	}
+	if msgs[0].ChatID != "777" {
+		t.Fatalf("unexpected chat id: %q", msgs[0].ChatID)
+	}
+}
+
+func TestBuildUserInfoReply(t *testing.T) {
+	reply := BuildUserInfoReply("555", "relay.local")
+	for _, fragment := range []string{"Ваш ID: 555", "555@relay.local", "555!123@relay.local", "555.silent@relay.local"} {
+		if !strings.Contains(reply, fragment) {
+			t.Fatalf("reply missing %q: %q", fragment, reply)
+		}
+	}
+	if !ShouldReplyWithUserInfo("/help") {
+		t.Fatalf("expected /help to trigger auto-reply")
+	}
+	if !ShouldReplyWithUserInfo("/start anything") {
+		t.Fatalf("expected /start with args to trigger auto-reply")
+	}
+	if !ShouldReplyWithUserInfo("/help@relaybot") {
+		t.Fatalf("expected /help@relaybot to trigger auto-reply")
+	}
+	if ShouldReplyWithUserInfo("hello") {
+		t.Fatalf("did not expect generic text to trigger auto-reply")
 	}
 }

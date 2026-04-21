@@ -34,6 +34,9 @@ SMTP AUTH: relay mode does not require authentication. If a client attempts `AUT
 SMTP server does not perform outgoing SMTP delivery and does not forward emails to external recipient domains; it only converts accepted inbound messages to MAX sends.
 
 
+When `MAX_SENDER_MODE=http`, the service also polls bot chats and replies to user messages `/start` or `/help` with the user's id and example email addresses that can be used to deliver into MAX via this relay.
+
+
 ## Docker
 
 Build image locally:
@@ -54,4 +57,3 @@ Example compose file is available at `docker-compose.yml`.
 
 
 CI also pushes container images to GHCR on non-PR runs with tags `sha-<commit>` and `latest` (for `main`).
-
