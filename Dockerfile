@@ -3,7 +3,8 @@
 FROM golang:1.23-alpine AS builder
 WORKDIR /src
 
-COPY go.mod ./
+COPY go.mod go.sum ./
+COPY third_party/max-bot-api-client-go ./third_party/max-bot-api-client-go
 RUN go mod download
 
 COPY . .
