@@ -6,9 +6,41 @@ import (
 )
 
 const (
-	greetingReply = "\u041f\u0440\u0438\u0432\u0435\u0442! \u2728"
-	chatInfoReply = "ID \u044d\u0442\u043e\u0433\u043e \u0447\u0430\u0442\u0430: %s\n\n\u041f\u0440\u0438\u043c\u0435\u0440\u044b email \u0434\u043b\u044f \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438 \u0432 \u044d\u0442\u043e\u0442 \u0447\u0430\u0442:\n%s@%s \u2014 \u0432 \u043b\u0438\u0447\u043d\u044b\u0439 \u0447\u0430\u0442\n\n%s.silent@%s \u2014 \u0431\u0435\u0437 \u0443\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f"
-	userInfoReply = "\u0412\u0430\u0448 ID: %s\n\n\u041f\u0440\u0438\u043c\u0435\u0440\u044b email \u0434\u043b\u044f \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438 \u0432 MAX:\n- %s@%s \u2014 \u0432 \u043b\u0438\u0447\u043d\u044b\u0439 \u0447\u0430\u0442\n- %s!123@%s \u2014 \u0432 \u0442\u0440\u0435\u0434 123\n- %s.silent@%s \u2014 \u0431\u0435\u0437 \u0443\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f"
+	chatInfoReply = `Привет! Я бот для доставки сообщений в чат Max через email 📩
+
+Как пользоваться:
+
+• Отправь письмо на один из адресов:
+— %[1]s@%[2]s — с уведомлением
+— %[1]s.silent@%[2]s — без уведомления
+
+• Всё, что ты напишешь в письме (тема и текст), появится в этом чате
+• Отправителя можно указать любого — он отобразится в сообщении
+
+Технические параметры (если настраиваешь отправку вручную):
+SMTP: %[2]s
+Порт: 25
+Авторизация: не требуется (можно указать любые логин/пароль)
+
+ID этого чата: %[1]s
+Ваш ID: %[1]s
+
+Примеры отправки:
+
+PowerShell:
+Send-MailMessage -SmtpServer "%[2]s" -Port 25 -From "test@test.loc" -To "%[1]s@%[2]s" -Subject "Test" -Body "Message text"
+
+curl:
+curl smtp://%[2]s:25 --mail-from "test@test.loc" --mail-rcpt "%[1]s@%[2]s" --upload-file - <<EOF
+Subject: Test
+From: test@test.loc
+To: %[1]s@%[2]s
+
+Message text
+EOF
+
+Используй для уведомлений, интеграций и автоматических сообщений.
+`
 )
 
 func ExtractCommandParts(text string) (command string, target string) {
@@ -81,11 +113,9 @@ func BuildUserInfoReply(userID, allowedDomain string) string {
 	}
 
 	return fmt.Sprintf(
-		userInfoReply,
+		chatInfoReply,
 		id,
-		id, domain,
-		id, domain,
-		id, domain,
+		domain,
 	)
 }
 
@@ -102,7 +132,6 @@ func BuildChatInfoReply(chatID, allowedDomain string) string {
 	return fmt.Sprintf(
 		chatInfoReply,
 		id,
-		id, domain,
-		id, domain,
+		domain,
 	)
 }
