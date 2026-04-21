@@ -3,6 +3,8 @@ package relay
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -80,5 +82,35 @@ func TestRelayRetriesOnTemporarySenderError(t *testing.T) {
 	}
 	if flaky.calls != 2 {
 		t.Fatalf("expected 2 send attempts, got %d", flaky.calls)
+	}
+}
+
+func TestRelaySplitsLongTextMessages(t *testing.T) {
+	body := strings.Repeat("0123456789", 450)
+	s := &Service{
+		Recipients: recipient.NewParser("relay.local", nil),
+		Email:      email.NewParser(1024 * 1024),
+		Sender:     &fakeSender{},
+	}
+
+	raw := []byte(fmt.Sprintf("Subject: Long\r\nFrom: sender@example.com\r\nContent-Type: text/plain\r\n\r\n%s", body))
+	if err := s.Relay(context.Background(), "123@relay.local", raw); err != nil {
+		t.Fatalf("relay failed: %v", err)
+	}
+
+	fs := s.Sender.(*fakeSender)
+	if len(fs.texts) < 2 {
+		t.Fatalf("expected long message to be split, got %d parts", len(fs.texts))
+	}
+	for i, part := range fs.texts {
+		if len(part) > maxTextMessageBytes {
+			t.Fatalf("part %d exceeds limit: %d", i, len(part))
+		}
+	}
+
+	got := strings.Join(fs.texts, "")
+	want := fmt.Sprintf("📧 %s\nОт: %s\n\n%s", "Long", "sender@example.com", body)
+	if got != want {
+		t.Fatalf("unexpected reconstructed text")
 	}
 }

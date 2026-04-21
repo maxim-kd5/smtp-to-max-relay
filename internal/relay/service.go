@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"smtp-to-max-relay/internal/email"
 	"smtp-to-max-relay/internal/max"
 	"smtp-to-max-relay/internal/metrics"
 	"smtp-to-max-relay/internal/recipient"
 )
+
+const maxTextMessageBytes = 4000
 
 type Service struct {
 	Recipients     recipient.Parser
@@ -48,13 +51,16 @@ func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) err
 	}
 
 	text := fmt.Sprintf("📧 %s\nОт: %s\n\n%s", fallback(em.Subject, "(без темы)"), em.From, body)
-	if err := s.sendWithRetry(ctx, func() error {
-		return s.Sender.SendText(ctx, pr.ChatID, text, pr.Silent)
-	}); err != nil {
-		if s.Metrics != nil {
-			s.Metrics.IncFailed()
+	for _, chunk := range splitTextMessage(text, maxTextMessageBytes) {
+		chunk := chunk
+		if err := s.sendWithRetry(ctx, func() error {
+			return s.Sender.SendText(ctx, pr.ChatID, chunk, pr.Silent)
+		}); err != nil {
+			if s.Metrics != nil {
+				s.Metrics.IncFailed()
+			}
+			return fmt.Errorf("send text: %w", err)
 		}
-		return fmt.Errorf("send text: %w", err)
 	}
 
 	if s.Metrics != nil {
@@ -95,6 +101,42 @@ func stripHTMLBasic(s string) string {
 	out = strings.ReplaceAll(out, "<", "")
 	out = strings.ReplaceAll(out, ">", "")
 	return strings.TrimSpace(out)
+}
+
+func splitTextMessage(text string, maxBytes int) []string {
+	if maxBytes <= 0 || len(text) <= maxBytes {
+		return []string{text}
+	}
+
+	parts := make([]string, 0, len(text)/maxBytes+1)
+	for len(text) > maxBytes {
+		cut := bestTextSplit(text, maxBytes)
+		parts = append(parts, text[:cut])
+		text = text[cut:]
+	}
+	if text != "" {
+		parts = append(parts, text)
+	}
+	return parts
+}
+
+func bestTextSplit(text string, maxBytes int) int {
+	if len(text) <= maxBytes {
+		return len(text)
+	}
+
+	cut := maxBytes
+	for cut > 0 && cut < len(text) && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	if cut == 0 {
+		cut = maxBytes
+	}
+
+	if idx := strings.LastIndexAny(text[:cut], "\n\r\t "); idx >= maxBytes/2 {
+		return idx + 1
+	}
+	return cut
 }
 
 func (s *Service) sendWithRetry(ctx context.Context, fn func() error) error {

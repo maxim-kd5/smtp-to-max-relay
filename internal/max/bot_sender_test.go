@@ -105,6 +105,71 @@ func TestBotSenderSendTextAndFile(t *testing.T) {
 	}
 }
 
+func TestBotSenderSendFileWaitsForAttachmentProcessing(t *testing.T) {
+	var (
+		fileMessageAttempts int
+		uploadCalls         int
+	)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/messages", func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+
+		if _, ok := payload["attachments"]; ok {
+			fileMessageAttempts++
+			if fileMessageAttempts < 3 {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"code":"attachment.not.ready","message":"errors.process.attachment.file.not.processed"}`))
+				return
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"message":{"recipient":{"chat_id":123},"body":{"mid":"m1"}}}`))
+	})
+	mux.HandleFunc("/uploads", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"url":"` + strings.TrimRight(testServerURL(r), "/") + `/upload-target"}`))
+	})
+	mux.HandleFunc("/upload-target", func(w http.ResponseWriter, r *http.Request) {
+		uploadCalls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"token":"file-token-1"}`))
+	})
+	mux.HandleFunc("/me", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"user_id":42,"first_name":"relaybot","username":"relay_bot","is_bot":true}`))
+	})
+
+	ts := httptest.NewServer(withURLContext(mux))
+	defer ts.Close()
+
+	sender, err := NewBotSender(ts.URL, "token-123", 5*time.Second)
+	if err != nil {
+		t.Fatalf("NewBotSender failed: %v", err)
+	}
+
+	att := email.Attachment{Filename: "event.ics", Data: []byte("BEGIN:VCALENDAR")}
+	if err := sender.SendFile(context.Background(), "123", att, false); err != nil {
+		t.Fatalf("SendFile failed: %v", err)
+	}
+
+	if uploadCalls != 1 {
+		t.Fatalf("expected one upload, got %d", uploadCalls)
+	}
+	if fileMessageAttempts != 3 {
+		t.Fatalf("expected 3 file send attempts, got %d", fileMessageAttempts)
+	}
+}
+
 func TestReplyForMessageText(t *testing.T) {
 	reply, ok := replyForMessageText("/hello", "777", &schemes.User{UserId: 555}, "relay_bot", "relay.local")
 	if !ok || !strings.Contains(reply, "ID этого чата: 777") || !strings.Contains(reply, "777@relay.local") || !strings.Contains(reply, "777.silent@relay.local") {

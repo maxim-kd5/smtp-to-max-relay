@@ -3,6 +3,7 @@ package max
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -18,6 +19,11 @@ import (
 type BotSender struct {
 	api *maxbot.Api
 }
+
+const (
+	attachmentReadyMaxAttempts = 5
+	attachmentReadyRetryDelay  = 300 * time.Millisecond
+)
 
 func NewBotSender(baseURL, token string, sendTimeout time.Duration) (*BotSender, error) {
 	clientTimeout := 35 * time.Second
@@ -83,10 +89,34 @@ func (s *BotSender) SendFile(ctx context.Context, chatID string, a email.Attachm
 		SetNotify(!silent).
 		AddFile(uploaded)
 
-	if err := s.api.Messages.Send(ctx, msg); err != nil {
-		return fmt.Errorf("send file message: %w", err)
+	return s.sendFileMessage(ctx, msg)
+}
+
+func (s *BotSender) sendFileMessage(ctx context.Context, msg *maxbot.Message) error {
+	delay := attachmentReadyRetryDelay
+	for attempt := 0; attempt < attachmentReadyMaxAttempts; attempt++ {
+		err := s.api.Messages.Send(ctx, msg)
+		if err == nil {
+			return nil
+		}
+
+		var apiErr *maxbot.APIError
+		if !errors.As(err, &apiErr) || !apiErr.IsAttachmentNotReady() || attempt == attachmentReadyMaxAttempts-1 {
+			return fmt.Errorf("send file message: %w", err)
+		}
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("send file message: %w", ctx.Err())
+		case <-time.After(delay):
+		}
+
+		if delay < 2*time.Second {
+			delay *= 2
+		}
 	}
-	return nil
+
+	return fmt.Errorf("send file message: exhausted retries")
 }
 
 func parseChatID(chatID string) (int64, error) {
