@@ -114,3 +114,50 @@ func TestRelaySplitsLongTextMessages(t *testing.T) {
 		t.Fatalf("unexpected reconstructed text")
 	}
 }
+
+func TestRelaySendsInlineImageFromHTMLBody(t *testing.T) {
+	s := &Service{
+		Recipients: recipient.NewParser("relay.local", nil),
+		Email:      email.NewParser(1024 * 1024),
+		Sender:     &fakeSender{},
+	}
+
+	raw := []byte(strings.Join([]string{
+		"Subject: Inline photo",
+		"From: sender@example.com",
+		"To: chatid123@relay.local",
+		"MIME-Version: 1.0",
+		"Content-Type: multipart/related; boundary=rel1",
+		"",
+		"--rel1",
+		"Content-Type: text/html; charset=utf-8",
+		"",
+		"<p>Body<img src=\"cid:image1\"></p>",
+		"--rel1",
+		"Content-Type: image/png; name=\"photo.png\"",
+		"Content-Transfer-Encoding: base64",
+		"Content-ID: <image1>",
+		"",
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+nmK0AAAAASUVORK5CYII=",
+		"--rel1--",
+		"",
+	}, "\r\n"))
+
+	if err := s.Relay(context.Background(), "chatid123@relay.local", raw); err != nil {
+		t.Fatalf("relay failed: %v", err)
+	}
+
+	fs := s.Sender.(*fakeSender)
+	if len(fs.texts) != 1 {
+		t.Fatalf("expected 1 text send, got %d", len(fs.texts))
+	}
+	if len(fs.files) != 1 {
+		t.Fatalf("expected 1 inline image send, got %d", len(fs.files))
+	}
+	if fs.files[0].Filename != "photo.png" {
+		t.Fatalf("unexpected inline image filename: %q", fs.files[0].Filename)
+	}
+	if fs.files[0].ContentType != "image/png" {
+		t.Fatalf("unexpected inline image content type: %q", fs.files[0].ContentType)
+	}
+}

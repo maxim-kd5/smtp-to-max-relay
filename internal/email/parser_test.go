@@ -136,3 +136,45 @@ func TestParseMultipartQuotedPrintablePart(t *testing.T) {
 		t.Fatalf("unexpected decoded text body: %q", em.TextBody)
 	}
 }
+
+func TestParseMultipartRelatedInlineImage(t *testing.T) {
+	raw := []byte(strings.Join([]string{
+		"Subject: Inline image",
+		"From: sender@example.com",
+		"To: user@relay.local",
+		"MIME-Version: 1.0",
+		"Content-Type: multipart/related; boundary=rel1",
+		"",
+		"--rel1",
+		"Content-Type: text/html; charset=utf-8",
+		"",
+		"<p>Hello<img src=\"cid:image1\"></p>",
+		"--rel1",
+		"Content-Type: image/png; name=\"photo.png\"",
+		"Content-Transfer-Encoding: base64",
+		"Content-ID: <image1>",
+		"",
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+nmK0AAAAASUVORK5CYII=",
+		"--rel1--",
+		"",
+	}, "\r\n"))
+
+	p := NewParser(8192)
+	em, err := p.Parse(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if em.HTMLBody != "<p>Hello<img src=\"cid:image1\"></p>" {
+		t.Fatalf("unexpected html body: %q", em.HTMLBody)
+	}
+	if len(em.Attachments) != 1 {
+		t.Fatalf("expected 1 extracted inline image, got %d", len(em.Attachments))
+	}
+	if em.Attachments[0].Filename != "photo.png" {
+		t.Fatalf("unexpected inline image filename: %q", em.Attachments[0].Filename)
+	}
+	if em.Attachments[0].ContentType != "image/png" {
+		t.Fatalf("unexpected inline image content type: %q", em.Attachments[0].ContentType)
+	}
+}
