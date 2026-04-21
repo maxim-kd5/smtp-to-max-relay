@@ -435,9 +435,6 @@ func parseMessagesResponse(body []byte) ([]Message, error) {
 			msgID = "<no-id>"
 		}
 		text := firstString(item, "text", "body")
-		if text == "" {
-			text = "<no-text>"
-		}
 		out = append(out, Message{
 			ID:     msgID,
 			Text:   text,

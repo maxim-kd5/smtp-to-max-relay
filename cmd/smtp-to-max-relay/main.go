@@ -119,6 +119,8 @@ func main() {
 func runUserInfoAutoReply(ctx context.Context, sender *max.HTTPSender, allowedDomain string) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
+	immediate := make(chan struct{}, 1)
+	immediate <- struct{}{}
 
 	seen := map[string]struct{}{}
 
@@ -126,6 +128,7 @@ func runUserInfoAutoReply(ctx context.Context, sender *max.HTTPSender, allowedDo
 		select {
 		case <-ctx.Done():
 			return
+		case <-immediate:
 		case <-ticker.C:
 		}
 
@@ -152,9 +155,9 @@ func runUserInfoAutoReply(ctx context.Context, sender *max.HTTPSender, allowedDo
 				if _, ok := seen[msgID]; ok {
 					continue
 				}
-				seen[msgID] = struct{}{}
 
 				if !max.ShouldReplyWithUserInfo(msg.Text) {
+					seen[msgID] = struct{}{}
 					continue
 				}
 
@@ -168,7 +171,9 @@ func runUserInfoAutoReply(ctx context.Context, sender *max.HTTPSender, allowedDo
 				cancelSend()
 				if err != nil {
 					log.Printf("auto-reply: send failed chat_id=%s msg_id=%s err=%v", c.ID, msgID, err)
+					continue
 				}
+				seen[msgID] = struct{}{}
 			}
 		}
 	}

@@ -90,6 +90,12 @@ func TestBuildUserInfoReply(t *testing.T) {
 	if !ShouldReplyWithUserInfo("/help") {
 		t.Fatalf("expected /help to trigger auto-reply")
 	}
+	if !ShouldReplyWithUserInfo("/start anything") {
+		t.Fatalf("expected /start with args to trigger auto-reply")
+	}
+	if !ShouldReplyWithUserInfo("/help@relaybot") {
+		t.Fatalf("expected /help@relaybot to trigger auto-reply")
+	}
 	if ShouldReplyWithUserInfo("hello") {
 		t.Fatalf("did not expect generic text to trigger auto-reply")
 	}

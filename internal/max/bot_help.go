@@ -7,7 +7,19 @@ import (
 
 func ShouldReplyWithUserInfo(text string) bool {
 	t := strings.TrimSpace(strings.ToLower(text))
-	return t == "/start" || t == "/help" || t == "help" || t == "start"
+	if t == "" {
+		return false
+	}
+
+	cmd := strings.Fields(t)[0]
+	if strings.HasPrefix(cmd, "/") {
+		cmd = strings.TrimPrefix(cmd, "/")
+		if at := strings.Index(cmd, "@"); at >= 0 {
+			cmd = cmd[:at]
+		}
+	}
+
+	return cmd == "start" || cmd == "help"
 }
 
 func BuildUserInfoReply(userID, allowedDomain string) string {
