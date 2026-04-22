@@ -12,6 +12,8 @@ func TestCollectorHandler(t *testing.T) {
 	c.IncRelayed()
 	c.IncTextSent()
 	c.IncFilesSent()
+	c.ObserveDelivery("alerts@relay.local", true, "123", "alerts")
+	c.ObserveDelivery("bad@relay.local", false, "", "")
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/metrics", nil)
@@ -24,9 +26,32 @@ func TestCollectorHandler(t *testing.T) {
 		"smtp_relay_failed_total 0",
 		"smtp_relay_text_sent_total 1",
 		"smtp_relay_files_sent_total 1",
+		`smtp_relay_delivery_total{address="alerts@relay.local",delivered="true",max_recipient_id="123",max_recipient_name="alerts"} 1`,
+		`smtp_relay_delivery_total{address="bad@relay.local",delivered="false",max_recipient_id="",max_recipient_name=""} 1`,
 	} {
 		if !strings.Contains(body, line) {
 			t.Fatalf("expected metrics output to contain %q, got %q", line, body)
+		}
+	}
+}
+
+func TestBuildLastDaysReport(t *testing.T) {
+	c := NewCollector()
+	c.ObserveDelivery("alerts@relay.local", true, "123", "alerts")
+	c.ObserveDelivery("chatid55@relay.local", false, "55", "chatid55")
+
+	report := c.BuildLastDaysReport(7)
+	for _, want := range []string{
+		"Статистика за 7 дней:",
+		"Принято: 2",
+		"Доставлено: 1",
+		"Ошибок: 1",
+		"Топ адресов:",
+		"alerts@relay.local",
+		"Топ получателей MAX:",
+	} {
+		if !strings.Contains(report, want) {
+			t.Fatalf("expected report to contain %q, got %q", want, report)
 		}
 	}
 }

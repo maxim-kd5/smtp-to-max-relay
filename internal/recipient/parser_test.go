@@ -83,3 +83,13 @@ func TestParseRejectsInvalidPrefixedChatID(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateAliasTarget(t *testing.T) {
+	p := NewParser("relay.local", nil)
+	if err := p.ValidateAliasTarget("chatid123.silent"); err != nil {
+		t.Fatalf("expected valid alias target, got %v", err)
+	}
+	if err := p.ValidateAliasTarget("chatid123!7.silent"); err == nil {
+		t.Fatalf("expected invalid thread alias target")
+	}
+}

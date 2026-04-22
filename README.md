@@ -15,6 +15,7 @@ Environment variables:
 - `SMTP_MAX_MESSAGE_BYTES` (default `15728640`)
 - `SMTP_ALLOWED_RCPT_DOMAIN` (default `relay.local`)
 - `ALIAS_FILE_PATH` (default `./config/aliases.json`)
+- `ADMIN_CHAT_ID` (optional; MAX chat ID пользователя с админским доступом; в этом чате доступны админ-команды)
 - `MAX_SENDER_MODE` (`stub` by default, options: `stub`, `botapi`)
 - `MAX_API_BASE_URL` (optional; when empty, the official MAX Bot API base URL is used)
 - `MAX_BOT_TOKEN` (required when `MAX_SENDER_MODE` is not `stub`)
@@ -37,10 +38,18 @@ SMTP AUTH: relay mode does not require authentication. If a client attempts `AUT
 
 SMTP server does not perform outgoing SMTP delivery and does not forward emails to external recipient domains; it only converts accepted inbound messages to MAX sends.
 
+Метрики включают счётчики принятых/успешных/ошибочных сообщений и детализацию пересылок:
+`smtp_relay_delivery_total{address,delivered,max_recipient_id,max_recipient_name}`.
+`max_recipient_name` — локальная часть исходного SMTP-адреса (например alias или `chatid...`).
+
 When `MAX_SENDER_MODE=botapi`, the service also receives bot updates and replies to:
 
 - `/start` with the user's personal relay address and MAX user ID
 - `/hello`, `/help`, or bot mentions in chat with the relay address of the current chat
+- admin-only alias commands in chat configured by `ADMIN_CHAT_ID`:
+  - `/alias <name> <chatid...>` — add/update alias
+  - `/unalias <name>` — remove alias
+  - `/stats7d` — отправить статистику relay за последние 7 дней
 
 
 ## Docker
