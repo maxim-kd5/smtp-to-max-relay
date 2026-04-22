@@ -3,6 +3,7 @@ package recipient
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 )
 
 func LoadAliases(path string) (map[string]string, error) {
@@ -21,4 +22,16 @@ func LoadAliases(path string) (map[string]string, error) {
 		return nil, err
 	}
 	return aliases, nil
+}
+
+func SaveAliases(path string, aliases map[string]string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(aliases, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(path, data, 0o644)
 }

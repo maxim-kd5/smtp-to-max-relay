@@ -45,6 +45,11 @@ func TestReplyForMessageText(t *testing.T) {
 	if !ok || !strings.Contains(reply, "ID этого чата: 777") || !strings.Contains(reply, "chatid777@relay.local") {
 		t.Fatalf("unexpected help reply: ok=%v reply=%q", ok, reply)
 	}
+	for _, cmd := range []string{"/start", "/hello", "/help", "/alias", "/unalias", "/stats7d"} {
+		if !strings.Contains(reply, cmd) {
+			t.Fatalf("expected help to contain command %q, got %q", cmd, reply)
+		}
+	}
 
 	reply, ok = replyForMessageText("/start@relay_bot", "777", &schemes.User{UserId: 555}, "relay_bot", "relay.local")
 	if !ok || !strings.Contains(reply, "Ваш ID: 555") || !strings.Contains(reply, "chatid555@relay.local") {

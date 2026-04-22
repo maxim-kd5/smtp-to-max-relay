@@ -12,6 +12,7 @@ type Config struct {
 	SMTPMaxMessageBytes int64
 	SMTPAllowedDomain   string
 	AliasFilePath       string
+	AdminChatID         int64
 	MaxSenderMode       string
 	MaxAPIBaseURL       string
 	MaxBotToken         string
@@ -38,12 +39,17 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	adminChatID, err := getEnvInt64("ADMIN_CHAT_ID", 0)
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
 		SMTPListenAddr:      getEnv("SMTP_LISTEN_ADDR", ":25"),
 		SMTPMaxMessageBytes: smtpMaxMessageBytes,
 		SMTPAllowedDomain:   getEnv("SMTP_ALLOWED_RCPT_DOMAIN", "relay.local"),
 		AliasFilePath:       getEnv("ALIAS_FILE_PATH", "./config/aliases.json"),
+		AdminChatID:         adminChatID,
 		MaxSenderMode:       getEnv("MAX_SENDER_MODE", "stub"),
 		MaxAPIBaseURL:       getEnv("MAX_API_BASE_URL", ""),
 		MaxBotToken:         getEnv("MAX_BOT_TOKEN", ""),
@@ -70,6 +76,9 @@ func Load() (Config, error) {
 	}
 	if cfg.RelayRetryDelay < 0 {
 		return Config{}, fmt.Errorf("RELAY_RETRY_DELAY_MS must be >= 0")
+	}
+	if cfg.AdminChatID < 0 {
+		return Config{}, fmt.Errorf("ADMIN_CHAT_ID must be >= 0")
 	}
 
 	return cfg, nil
