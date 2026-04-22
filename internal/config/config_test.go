@@ -55,6 +55,16 @@ func TestLoadRequiresTokenForBotAPI(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidAdminChatID(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("ADMIN_CHAT_ID", "oops")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "ADMIN_CHAT_ID must be a valid integer") {
+		t.Fatalf("expected invalid admin chat id error, got %v", err)
+	}
+}
+
 func clearConfigEnv(t *testing.T) {
 	t.Helper()
 
@@ -63,6 +73,7 @@ func clearConfigEnv(t *testing.T) {
 		"SMTP_MAX_MESSAGE_BYTES",
 		"SMTP_ALLOWED_RCPT_DOMAIN",
 		"ALIAS_FILE_PATH",
+		"ADMIN_CHAT_ID",
 		"MAX_SENDER_MODE",
 		"MAX_API_BASE_URL",
 		"MAX_BOT_TOKEN",
