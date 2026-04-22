@@ -33,6 +33,7 @@ func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) err
 	if err != nil {
 		if s.Metrics != nil {
 			s.Metrics.IncFailed()
+			s.Metrics.ObserveDelivery(rcpt, false, "", "")
 		}
 		return fmt.Errorf("parse recipient: %w", err)
 	}
@@ -41,6 +42,7 @@ func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) err
 	if err != nil {
 		if s.Metrics != nil {
 			s.Metrics.IncFailed()
+			s.Metrics.ObserveDelivery(rcpt, false, pr.ChatID, pr.SourceLocal)
 		}
 		return fmt.Errorf("parse email: %w", err)
 	}
@@ -58,6 +60,7 @@ func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) err
 		}); err != nil {
 			if s.Metrics != nil {
 				s.Metrics.IncFailed()
+				s.Metrics.ObserveDelivery(rcpt, false, pr.ChatID, pr.SourceLocal)
 			}
 			return fmt.Errorf("send text: %w", err)
 		}
@@ -74,6 +77,7 @@ func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) err
 		}); err != nil {
 			if s.Metrics != nil {
 				s.Metrics.IncFailed()
+				s.Metrics.ObserveDelivery(rcpt, false, pr.ChatID, pr.SourceLocal)
 			}
 			return fmt.Errorf("send file %s: %w", a.Filename, err)
 		}
@@ -84,6 +88,7 @@ func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) err
 
 	if s.Metrics != nil {
 		s.Metrics.IncRelayed()
+		s.Metrics.ObserveDelivery(rcpt, true, pr.ChatID, pr.SourceLocal)
 	}
 	return nil
 }
