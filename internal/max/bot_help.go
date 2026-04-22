@@ -3,6 +3,8 @@ package max
 import (
 	"fmt"
 	"strings"
+
+	"smtp-to-max-relay/internal/version"
 )
 
 const (
@@ -18,7 +20,16 @@ const (
 
 И я перешлю сообщение сюда. 
 
+Версия бота: %[6]s
+
 Я могу слать сообщения как напрямую тебе так и в групповой чат, для этого нужно добавить меня администратором в групповой чат с доступом к чтению сообщений, после чего в чат отправить сообщение /help, затем я пришлю информацию с email после меня можно из администраторов чата убрать.
+
+Команды бота:
+- /start — показать персональный адрес
+- /hello или /help — показать адрес текущего чата
+- /alias <name> <chatid...> — (admin) добавить/обновить alias
+- /unalias <name> — (admin) удалить alias
+- /stats7d — (admin) статистика relay за 7 дней
 
 Технические параметры (если настраиваешь отправку вручную):
 SMTP: %[3]s
@@ -140,5 +151,5 @@ func chatAddressLocalPart(id string) string {
 }
 
 func buildInfoReply(title, localPart, domain, idLabel, idValue string) string {
-	return fmt.Sprintf(infoReplyTemplate, title, localPart, domain, idLabel, idValue)
+	return fmt.Sprintf(infoReplyTemplate, title, localPart, domain, idLabel, idValue, version.BotVersion())
 }

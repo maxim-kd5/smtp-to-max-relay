@@ -59,9 +59,10 @@ func main() {
 	}
 
 	m := metrics.NewCollector()
+	recipients := recipient.NewParser(cfg.SMTPAllowedDomain, aliases)
 
 	relaySvc := &relay.Service{
-		Recipients:     recipient.NewParser(cfg.SMTPAllowedDomain, aliases),
+		Recipients:     recipients,
 		Email:          email.NewParser(cfg.SMTPMaxMessageBytes),
 		Sender:         sender,
 		MaxSendRetries: cfg.RelayMaxRetries,
@@ -75,7 +76,18 @@ func main() {
 	defer stop()
 
 	if botSender != nil {
-		go max.RunBotLoopWithUsername(ctx, botSender.API(), sender, botUserID, botUsername, cfg.SMTPAllowedDomain)
+		go max.RunBotLoopWithUsername(
+			ctx,
+			botSender.API(),
+			sender,
+			botUserID,
+			botUsername,
+			cfg.SMTPAllowedDomain,
+			cfg.AliasFilePath,
+			recipients,
+			m,
+			cfg.AdminChatID,
+		)
 	}
 
 	if cfg.MetricsListenAddr != "" {
