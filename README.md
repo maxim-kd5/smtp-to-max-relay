@@ -71,3 +71,10 @@ In the provided compose example SMTP is exposed as `25:2525` (host port 25 -> co
 Example compose file is available at `docker-compose.yml`.
 
 CI also pushes container images to GHCR on non-PR runs with tags `sha-<commit>` and `latest` (for `main`).
+
+## Bot versioning
+
+Bot version format is `0.2.<build-number>`.
+
+- `0.2` — fixed major/minor train
+- `<build-number>` — commit counter (`git rev-list --count HEAD`), injected automatically during container build/CI.

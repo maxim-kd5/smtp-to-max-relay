@@ -2,13 +2,17 @@
 
 FROM golang:1.23-alpine AS builder
 WORKDIR /src
+ARG BUILD_NUMBER=0
 
 COPY go.mod go.sum ./
 COPY third_party/max-bot-api-client-go ./third_party/max-bot-api-client-go
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/smtp-to-max-relay ./cmd/smtp-to-max-relay
+RUN if [ "$BUILD_NUMBER" = "0" ]; then BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 0)"; fi && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+      -ldflags "-X smtp-to-max-relay/internal/version.BuildNumber=${BUILD_NUMBER}" \
+      -o /out/smtp-to-max-relay ./cmd/smtp-to-max-relay
 
 FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app

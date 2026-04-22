@@ -29,8 +29,12 @@ jobs:
       - name: Run tests
         run: go test -mod=mod ./...
 
+      - name: Resolve build number
+        id: build_meta
+        run: echo "build_number=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Build container image
-        run: docker build -t smtp-to-max-relay:ci .
+        run: docker build --build-arg BUILD_NUMBER=${{ steps.build_meta.outputs.build_number }} -t smtp-to-max-relay:ci .
 
       - name: Save container image tar
         run: docker save -o smtp-to-max-relay-image.tar smtp-to-max-relay:ci

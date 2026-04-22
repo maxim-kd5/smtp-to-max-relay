@@ -13,6 +13,9 @@ func TestBuildUserInfoReply(t *testing.T) {
 	if !strings.Contains(reply, "Ваш ID: 555") {
 		t.Fatalf("expected user id in reply, got %q", reply)
 	}
+	if !strings.Contains(reply, "Версия бота: 0.2.") {
+		t.Fatalf("expected bot version in reply, got %q", reply)
+	}
 	if !strings.Contains(reply, "chatid555@relay.local") || !strings.Contains(reply, "chatid555.silent@relay.local") {
 		t.Fatalf("expected personal chat addresses in reply, got %q", reply)
 	}
@@ -26,6 +29,9 @@ func TestBuildChatInfoReplyUsesNegativeChatID(t *testing.T) {
 
 	if !strings.Contains(reply, "ID этого чата: -73211480961715") {
 		t.Fatalf("expected chat id in reply, got %q", reply)
+	}
+	if !strings.Contains(reply, "Версия бота: 0.2.") {
+		t.Fatalf("expected bot version in chat reply, got %q", reply)
 	}
 	if !strings.Contains(reply, "chatid-73211480961715@relay.local") || !strings.Contains(reply, "chatid-73211480961715.silent@relay.local") {
 		t.Fatalf("expected negative chat addresses in reply, got %q", reply)
