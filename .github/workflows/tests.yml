@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -35,6 +37,13 @@ jobs:
 
       - name: Build container image
         run: docker build --build-arg BUILD_NUMBER=${{ steps.build_meta.outputs.build_number }} -t smtp-to-max-relay:ci .
+
+      - name: Build dev container image
+        run: |
+          docker build \
+            --build-arg BUILD_NUMBER=${{ steps.build_meta.outputs.build_number }} \
+            --build-arg BUILD_SUFFIX=dev \
+            -t smtp-to-max-relay:dev .
 
       - name: Save container image tar
         run: docker save -o smtp-to-max-relay-image.tar smtp-to-max-relay:ci
@@ -60,6 +69,9 @@ jobs:
           IMAGE="ghcr.io/${{ github.repository }}:sha-${{ github.sha }}"
           docker tag smtp-to-max-relay:ci "$IMAGE"
           docker push "$IMAGE"
+
+          docker tag smtp-to-max-relay:dev "ghcr.io/${{ github.repository }}:dev"
+          docker push "ghcr.io/${{ github.repository }}:dev"
 
           if [ "${{ github.ref_name }}" = "main" ]; then
             docker tag smtp-to-max-relay:ci "ghcr.io/${{ github.repository }}:latest"
