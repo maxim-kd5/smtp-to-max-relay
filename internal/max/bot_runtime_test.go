@@ -1,10 +1,15 @@
 package max
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/max-messenger/max-bot-api-client-go/schemes"
+
+	"smtp-to-max-relay/internal/email"
+	"smtp-to-max-relay/internal/version"
 )
 
 type testAliasAdmin struct {
@@ -48,6 +53,23 @@ func (a *testAliasAdmin) SnapshotAliases() map[string]string {
 type aliasTargetErr string
 
 func (e aliasTargetErr) Error() string { return string(e) }
+
+type startupNotifySender struct {
+	chatID string
+	text   string
+	silent bool
+}
+
+func (s *startupNotifySender) SendText(_ context.Context, chatID, text string, silent bool) error {
+	s.chatID = chatID
+	s.text = text
+	s.silent = silent
+	return nil
+}
+
+func (s *startupNotifySender) SendFile(_ context.Context, _ string, _ email.Attachment, _ bool) error {
+	return nil
+}
 
 func TestMaybeHandleAdminAliasCommandSetAndRemove(t *testing.T) {
 	a := &testAliasAdmin{values: map[string]string{}}
@@ -100,6 +122,29 @@ func TestMaybeHandleAdminAliasCommandStats7d(t *testing.T) {
 	}
 }
 
+func TestMaybeHandleAdminAliasCommandAliasesList(t *testing.T) {
+	a := &testAliasAdmin{values: map[string]string{"alerts": "chatid123.silent", "ops": "chatid-77"}}
+	reply, ok := maybeHandleAdminAliasCommand("/aliases", &schemes.User{UserId: 42}, 100, "", a, nil, 100)
+	if !ok {
+		t.Fatalf("expected command to be handled")
+	}
+	if !strings.Contains(reply, "Алиасы (имя -> chatid -> чат):") {
+		t.Fatalf("unexpected list header: %q", reply)
+	}
+	if !strings.Contains(reply, "- alerts -> 123 -> (название чата недоступно через Bot API)") {
+		t.Fatalf("expected alerts entry, got %q", reply)
+	}
+	if !strings.Contains(reply, "- ops -> -77 -> (название чата недоступно через Bot API)") {
+		t.Fatalf("expected ops entry, got %q", reply)
+	}
+}
+
+func TestBuildAliasesListReplyEmpty(t *testing.T) {
+	if got := buildAliasesListReply(nil); got != "Список алиасов пуст" {
+		t.Fatalf("unexpected empty reply: %q", got)
+	}
+}
+
 func TestNormalizeAliasName(t *testing.T) {
 	if got := normalizeAliasName(" Alerts_1 "); got != "alerts_1" {
 		t.Fatalf("unexpected alias normalize: %q", got)
@@ -119,5 +164,36 @@ func TestNormalizeAliasTarget(t *testing.T) {
 	}
 	if _, err := normalizeAliasTarget("bad-target"); err == nil {
 		t.Fatalf("expected validation error for bad target")
+	}
+}
+
+func TestSendStartupNotification(t *testing.T) {
+	originalBuild := version.BuildNumber
+	version.BuildNumber = "99"
+	t.Cleanup(func() { version.BuildNumber = originalBuild })
+
+	sender := &startupNotifySender{}
+	if err := SendStartupNotification(context.Background(), sender, 321); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sender.chatID != "321" {
+		t.Fatalf("unexpected chat id: %q", sender.chatID)
+	}
+	expected := fmt.Sprintf("✅ smtp-to-max-relay запущен. Версия бота: %s", version.BotVersion())
+	if sender.text != expected {
+		t.Fatalf("unexpected text: %q", sender.text)
+	}
+	if !sender.silent {
+		t.Fatalf("expected silent notification")
+	}
+}
+
+func TestSendStartupNotificationNoop(t *testing.T) {
+	sender := &startupNotifySender{}
+	if err := SendStartupNotification(context.Background(), sender, 0); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sender.chatID != "" || sender.text != "" {
+		t.Fatalf("expected no message to be sent")
 	}
 }
