@@ -122,6 +122,14 @@ func TestMaybeHandleAdminAliasCommandStats7d(t *testing.T) {
 	}
 }
 
+func TestMaybeHandleAdminAliasCommandStats30d(t *testing.T) {
+	reporter := &testStatsReporter{report: "Статистика за 30 дней"}
+	reply, ok := maybeHandleAdminAliasCommand("/stats30d", &schemes.User{UserId: 42}, 100, "", nil, reporter, 100)
+	if !ok || reply != "Статистика за 30 дней" {
+		t.Fatalf("unexpected stats reply: ok=%v reply=%q", ok, reply)
+	}
+}
+
 func TestMaybeHandleAdminAliasCommandAliasesList(t *testing.T) {
 	a := &testAliasAdmin{values: map[string]string{"alerts": "chatid123.silent", "ops": "chatid-77"}}
 	reply, ok := maybeHandleAdminAliasCommand("/aliases", &schemes.User{UserId: 42}, 100, "", a, nil, 100)

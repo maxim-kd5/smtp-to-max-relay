@@ -157,6 +157,11 @@ func maybeHandleAdminAliasCommand(text string, sender *schemes.User, chatID int6
 			return "Статистика недоступна", true
 		}
 		return statsReporter.BuildLastDaysReport(7), true
+	case "/stats30d":
+		if statsReporter == nil {
+			return "Статистика недоступна", true
+		}
+		return statsReporter.BuildLastDaysReport(30), true
 	case "/alias":
 		if aliasAdmin == nil {
 			return "Управление алиасами недоступно", true
