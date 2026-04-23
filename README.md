@@ -50,6 +50,7 @@ When `MAX_SENDER_MODE=botapi`, the service also receives bot updates and replies
   - `/alias <name> <chatid...|number>` — add/update alias (число автоматически преобразуется в `chatid<number>`)
   - `/unalias <name>` — remove alias
   - `/stats7d` — отправить статистику relay за последние 7 дней
+  - `/stats30d` — отправить статистику relay за последние 30 дней
 
 Пример:
 - `/alias admin 260920412` сохранится как `admin -> chatid260920412`
@@ -73,11 +74,14 @@ In the provided compose example SMTP is exposed as `25:2525` (host port 25 -> co
 
 Example compose file is available at `docker-compose.yml`.
 
-CI also pushes container images to GHCR on non-PR runs with tags `sha-<commit>` and `latest` (for `main`).
+CI also pushes container images to GHCR on non-PR runs with tags:
+- `sha-<commit>` for each commit
+- `dev` for each commit
+- `latest` for `main`
 
 ## Bot versioning
 
-Bot version format is `0.2.<build-number>`.
+Bot version format is `0.2.<build-number>` (or `0.2.<build-number>-<suffix>` for suffix builds like `dev`).
 
 - `0.2` — fixed major/minor train
 - `<build-number>` — commit counter (`git rev-list --count HEAD`), injected automatically during container build/CI.
