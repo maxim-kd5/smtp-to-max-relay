@@ -72,6 +72,19 @@ func TestMaybeHandleAdminAliasCommandSetAndRemove(t *testing.T) {
 	}
 }
 
+func TestMaybeHandleAdminAliasCommandAcceptsNumericTarget(t *testing.T) {
+	a := &testAliasAdmin{values: map[string]string{}}
+	admin := &schemes.User{UserId: 42}
+
+	reply, ok := maybeHandleAdminAliasCommand("/alias admin 260920412", admin, 100, t.TempDir()+"/aliases.json", a, nil, 100)
+	if !ok || !strings.Contains(reply, "Алиас сохранён") {
+		t.Fatalf("unexpected set reply: ok=%v reply=%q", ok, reply)
+	}
+	if got := a.values["admin"]; got != "chatid260920412" {
+		t.Fatalf("expected numeric target to be normalized to chatid prefix, got %q", got)
+	}
+}
+
 func TestMaybeHandleAdminAliasCommandRejectsNonAdmin(t *testing.T) {
 	a := &testAliasAdmin{values: map[string]string{}}
 	if _, ok := maybeHandleAdminAliasCommand("/alias alerts chatid123", &schemes.User{UserId: 5}, 101, t.TempDir()+"/aliases.json", a, nil, 100); ok {
@@ -93,5 +106,18 @@ func TestNormalizeAliasName(t *testing.T) {
 	}
 	if got := normalizeAliasName("bad name"); got != "" {
 		t.Fatalf("expected invalid alias name")
+	}
+}
+
+func TestNormalizeAliasTarget(t *testing.T) {
+	got, err := normalizeAliasTarget("260920412.silent")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got != "chatid260920412.silent" {
+		t.Fatalf("unexpected normalized target: %q", got)
+	}
+	if _, err := normalizeAliasTarget("bad-target"); err == nil {
+		t.Fatalf("expected validation error for bad target")
 	}
 }

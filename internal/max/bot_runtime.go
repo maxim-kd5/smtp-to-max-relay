@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,8 @@ type AliasAdmin interface {
 type StatsReporter interface {
 	BuildLastDaysReport(days int) string
 }
+
+var numericAliasTargetPattern = regexp.MustCompile(`^-?\d+(\.silent)?$`)
 
 func RunBotLoopWithUsername(
 	ctx context.Context,
@@ -151,9 +154,12 @@ func maybeHandleAdminAliasCommand(text string, sender *schemes.User, chatID int6
 			return "Использование: /alias <имя> <chatid...>", true
 		}
 		name := normalizeAliasName(parts[1])
-		target := strings.ToLower(strings.TrimSpace(parts[2]))
+		target, err := normalizeAliasTarget(parts[2])
 		if name == "" {
 			return "Имя алиаса должно состоять из букв/цифр/._-", true
+		}
+		if err != nil {
+			return err.Error(), true
 		}
 		if err := aliasAdmin.ValidateAliasTarget(target); err != nil {
 			return fmt.Sprintf("Некорректный target алиаса: %v", err), true
@@ -195,6 +201,20 @@ func normalizeAliasName(value string) string {
 		return ""
 	}
 	return v
+}
+
+func normalizeAliasTarget(value string) (string, error) {
+	target := strings.ToLower(strings.TrimSpace(value))
+	if target == "" {
+		return "", fmt.Errorf("target алиаса пустой")
+	}
+	if strings.HasPrefix(target, "chatid") {
+		return target, nil
+	}
+	if numericAliasTargetPattern.MatchString(target) {
+		return "chatid" + target, nil
+	}
+	return "", fmt.Errorf("target алиаса должен быть chatid..., либо числом (например 260920412 или -73211480961715.silent)")
 }
 
 func replyForMessageText(text, chatID string, sender *schemes.User, botUsername, allowedDomain string) (string, bool) {

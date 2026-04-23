@@ -27,7 +27,7 @@ const (
 Команды бота:
 - /start — показать персональный адрес
 - /hello или /help — показать адрес текущего чата
-- /alias <name> <chatid...> — (admin) добавить/обновить alias
+- /alias <name> <chatid...|число> — (admin) добавить/обновить alias
 - /unalias <name> — (admin) удалить alias
 - /stats7d — (admin) статистика relay за 7 дней
 

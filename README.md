@@ -47,9 +47,12 @@ When `MAX_SENDER_MODE=botapi`, the service also receives bot updates and replies
 - `/start` with the user's personal relay address and MAX user ID
 - `/hello`, `/help`, or bot mentions in chat with the relay address of the current chat
 - admin-only alias commands in chat configured by `ADMIN_CHAT_ID`:
-  - `/alias <name> <chatid...>` — add/update alias
+  - `/alias <name> <chatid...|number>` — add/update alias (число автоматически преобразуется в `chatid<number>`)
   - `/unalias <name>` — remove alias
   - `/stats7d` — отправить статистику relay за последние 7 дней
+
+Пример:
+- `/alias admin 260920412` сохранится как `admin -> chatid260920412`
 
 
 ## Docker
