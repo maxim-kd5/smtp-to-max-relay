@@ -30,6 +30,7 @@ const (
 - /alias <name> <chatid...|число> — (admin) добавить/обновить alias
 - /unalias <name> — (admin) удалить alias
 - /stats7d — (admin) статистика relay за 7 дней
+- /aliases — (admin) показать список алиасов и chatid
 
 Технические параметры (если настраиваешь отправку вручную):
 SMTP: %[3]s

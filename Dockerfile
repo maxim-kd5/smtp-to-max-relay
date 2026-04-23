@@ -3,6 +3,7 @@
 FROM golang:1.23-alpine AS builder
 WORKDIR /src
 ARG BUILD_NUMBER=0
+RUN apk add --no-cache git
 
 COPY go.mod go.sum ./
 COPY third_party/max-bot-api-client-go ./third_party/max-bot-api-client-go
