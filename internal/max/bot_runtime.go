@@ -14,6 +14,7 @@ import (
 	"github.com/max-messenger/max-bot-api-client-go/schemes"
 
 	"smtp-to-max-relay/internal/recipient"
+	"smtp-to-max-relay/internal/version"
 )
 
 type AliasAdmin interface {
@@ -28,6 +29,15 @@ type StatsReporter interface {
 }
 
 var numericAliasTargetPattern = regexp.MustCompile(`^-?\d+(\.silent)?$`)
+
+func SendStartupNotification(ctx context.Context, sender Sender, adminChatID int64) error {
+	if sender == nil || adminChatID == 0 {
+		return nil
+	}
+
+	text := fmt.Sprintf("✅ smtp-to-max-relay запущен. Версия бота: %s", version.BotVersion())
+	return sender.SendText(ctx, strconv.FormatInt(adminChatID, 10), text, true)
+}
 
 func RunBotLoopWithUsername(
 	ctx context.Context,

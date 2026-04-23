@@ -76,6 +76,14 @@ func main() {
 	defer stop()
 
 	if botSender != nil {
+		notifyCtx, cancel := context.WithTimeout(ctx, cfg.MaxSendTimeout)
+		if err := max.SendStartupNotification(notifyCtx, sender, cfg.AdminChatID); err != nil {
+			log.Printf("failed to send startup notification to admin chat_id=%d: %v", cfg.AdminChatID, err)
+		} else if cfg.AdminChatID != 0 {
+			log.Printf("startup notification sent to admin chat_id=%d", cfg.AdminChatID)
+		}
+		cancel()
+
 		go max.RunBotLoopWithUsername(
 			ctx,
 			botSender.API(),
