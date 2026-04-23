@@ -100,6 +100,29 @@ func TestMaybeHandleAdminAliasCommandStats7d(t *testing.T) {
 	}
 }
 
+func TestMaybeHandleAdminAliasCommandAliasesList(t *testing.T) {
+	a := &testAliasAdmin{values: map[string]string{"alerts": "chatid123.silent", "ops": "chatid-77"}}
+	reply, ok := maybeHandleAdminAliasCommand("/aliases", &schemes.User{UserId: 42}, 100, "", a, nil, 100)
+	if !ok {
+		t.Fatalf("expected command to be handled")
+	}
+	if !strings.Contains(reply, "Алиасы (имя -> chatid -> чат):") {
+		t.Fatalf("unexpected list header: %q", reply)
+	}
+	if !strings.Contains(reply, "- alerts -> 123 -> (название чата недоступно через Bot API)") {
+		t.Fatalf("expected alerts entry, got %q", reply)
+	}
+	if !strings.Contains(reply, "- ops -> -77 -> (название чата недоступно через Bot API)") {
+		t.Fatalf("expected ops entry, got %q", reply)
+	}
+}
+
+func TestBuildAliasesListReplyEmpty(t *testing.T) {
+	if got := buildAliasesListReply(nil); got != "Список алиасов пуст" {
+		t.Fatalf("unexpected empty reply: %q", got)
+	}
+}
+
 func TestNormalizeAliasName(t *testing.T) {
 	if got := normalizeAliasName(" Alerts_1 "); got != "alerts_1" {
 		t.Fatalf("unexpected alias normalize: %q", got)

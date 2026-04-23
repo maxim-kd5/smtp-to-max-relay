@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -185,8 +186,48 @@ func maybeHandleAdminAliasCommand(text string, sender *schemes.User, chatID int6
 			return fmt.Sprintf("Алиас удалён из памяти, но не записан в файл: %v", err), true
 		}
 		return fmt.Sprintf("Алиас удалён: %s", name), true
+	case "/aliases":
+		if aliasAdmin == nil {
+			return "Управление алиасами недоступно", true
+		}
+		return buildAliasesListReply(aliasAdmin.SnapshotAliases()), true
 	}
 	return "", false
+}
+
+func buildAliasesListReply(aliases map[string]string) string {
+	if len(aliases) == 0 {
+		return "Список алиасов пуст"
+	}
+
+	names := make([]string, 0, len(aliases))
+	for name := range aliases {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	lines := make([]string, 0, len(names)+2)
+	lines = append(lines, "Алиасы (имя -> chatid -> чат):")
+	for _, name := range names {
+		target := aliases[name]
+		chatID := extractChatIDFromAliasTarget(target)
+		lines = append(lines, fmt.Sprintf("- %s -> %s -> %s", name, chatID, "(название чата недоступно через Bot API)"))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func extractChatIDFromAliasTarget(target string) string {
+	v := strings.TrimSpace(strings.ToLower(target))
+	if idx := strings.Index(v, "."); idx >= 0 {
+		v = v[:idx]
+	}
+	if strings.HasPrefix(v, "chatid") {
+		v = strings.TrimPrefix(v, "chatid")
+	}
+	if v == "" {
+		return "unknown"
+	}
+	return v
 }
 
 func normalizeAliasName(value string) string {
