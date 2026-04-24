@@ -51,7 +51,7 @@ func TestReplyForMessageText(t *testing.T) {
 	if !ok || !strings.Contains(reply, "ID этого чата: 777") || !strings.Contains(reply, "chatid777@relay.local") {
 		t.Fatalf("unexpected help reply: ok=%v reply=%q", ok, reply)
 	}
-	for _, cmd := range []string{"/start", "/hello", "/help", "/alias", "/unalias", "/stats7d", "/aliases"} {
+	for _, cmd := range []string{"/start", "/hello", "/help", "/alias", "/unalias", "/stats7d", "/stats30d", "/aliases"} {
 		if !strings.Contains(reply, cmd) {
 			t.Fatalf("expected help to contain command %q, got %q", cmd, reply)
 		}

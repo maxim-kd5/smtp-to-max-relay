@@ -70,7 +70,10 @@ jobs:
           docker tag smtp-to-max-relay:ci "$IMAGE"
           docker push "$IMAGE"
 
-          docker tag smtp-to-max-relay:dev "ghcr.io/${{ github.repository }}:dev"
+          docker build \
+            --build-arg BUILD_NUMBER=${{ steps.build_meta.outputs.build_number }} \
+            --build-arg BUILD_SUFFIX=dev \
+            -t "ghcr.io/${{ github.repository }}:dev" .
           docker push "ghcr.io/${{ github.repository }}:dev"
 
           if [ "${{ github.ref_name }}" = "main" ]; then
