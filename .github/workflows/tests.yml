@@ -38,6 +38,13 @@ jobs:
       - name: Build container image
         run: docker build --build-arg BUILD_NUMBER=${{ steps.build_meta.outputs.build_number }} -t smtp-to-max-relay:ci .
 
+      - name: Build dev container image
+        run: |
+          docker build \
+            --build-arg BUILD_NUMBER=${{ steps.build_meta.outputs.build_number }} \
+            --build-arg BUILD_SUFFIX=dev \
+            -t smtp-to-max-relay:dev .
+
       - name: Save container image tar
         run: docker save -o smtp-to-max-relay-image.tar smtp-to-max-relay:ci
 
