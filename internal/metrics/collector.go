@@ -139,6 +139,7 @@ func (c *Collector) BuildLastDaysReport(days int) string {
 	failed := 0
 	byAddress := map[string]int{}
 	byRecipient := map[string]int{}
+	recipientAgg := map[string]recipientStats{}
 
 	for _, ev := range c.deliveryEvents {
 		if ev.At.Before(since) {
@@ -151,17 +152,17 @@ func (c *Collector) BuildLastDaysReport(days int) string {
 			failed++
 		}
 		byAddress[ev.Key.Address]++
+
+		recipientKey := formatRecipientLabel(ev.Key.RecipientName, ev.Key.MaxRecipient)
+		agg := recipientAgg[recipientKey]
+		agg.Total++
 		if ev.Key.Delivered {
-			name := ev.Key.RecipientName
-			if strings.TrimSpace(name) == "" {
-				name = "unknown"
-			}
-			id := strings.TrimSpace(ev.Key.MaxRecipient)
-			if id == "" {
-				id = "unknown"
-			}
-			byRecipient[fmt.Sprintf("%s (id=%s)", name, id)]++
+			agg.Delivered++
+			byRecipient[recipientKey]++
+		} else {
+			agg.Failed++
 		}
+		recipientAgg[recipientKey] = agg
 	}
 
 	lines := []string{
@@ -183,7 +184,60 @@ func (c *Collector) BuildLastDaysReport(days int) string {
 			lines = append(lines, fmt.Sprintf("- %s: %d", kv.Key, kv.Value))
 		}
 	}
+	if len(recipientAgg) > 0 {
+		lines = append(lines, "Агрегировано по получателям MAX:")
+		lines = append(lines, fmt.Sprintf("- Уникальных получателей: %d", len(recipientAgg)))
+		for _, kv := range topRecipientStats(recipientAgg, 5) {
+			lines = append(lines, fmt.Sprintf(
+				"- %s: всего %d, доставлено %d, ошибок %d",
+				kv.Key,
+				kv.Value.Total,
+				kv.Value.Delivered,
+				kv.Value.Failed,
+			))
+		}
+	}
 	return strings.Join(lines, "\n")
+}
+
+type recipientStats struct {
+	Total     int
+	Delivered int
+	Failed    int
+}
+
+type recipientStatKV struct {
+	Key   string
+	Value recipientStats
+}
+
+func topRecipientStats(m map[string]recipientStats, k int) []recipientStatKV {
+	items := make([]recipientStatKV, 0, len(m))
+	for key, value := range m {
+		items = append(items, recipientStatKV{Key: key, Value: value})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Value.Total != items[j].Value.Total {
+			return items[i].Value.Total > items[j].Value.Total
+		}
+		return items[i].Key < items[j].Key
+	})
+	if k > 0 && len(items) > k {
+		items = items[:k]
+	}
+	return items
+}
+
+func formatRecipientLabel(name, id string) string {
+	cleanName := strings.TrimSpace(name)
+	if cleanName == "" {
+		cleanName = "unknown"
+	}
+	cleanID := strings.TrimSpace(id)
+	if cleanID == "" {
+		cleanID = "unknown"
+	}
+	return fmt.Sprintf("%s (id=%s)", cleanName, cleanID)
 }
 
 type kv struct {
