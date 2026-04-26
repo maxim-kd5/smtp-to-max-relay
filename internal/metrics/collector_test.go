@@ -38,17 +38,21 @@ func TestCollectorHandler(t *testing.T) {
 func TestBuildLastDaysReport(t *testing.T) {
 	c := NewCollector()
 	c.ObserveDelivery("alerts@relay.local", true, "123", "alerts")
+	c.ObserveDelivery("alerts@relay.local", false, "123", "alerts")
 	c.ObserveDelivery("chatid55@relay.local", false, "55", "chatid55")
 
 	report := c.BuildLastDaysReport(7)
 	for _, want := range []string{
 		"Статистика за 7 дней:",
-		"Принято: 2",
+		"Принято: 3",
 		"Доставлено: 1",
-		"Ошибок: 1",
+		"Ошибок: 2",
 		"Топ адресов:",
 		"alerts@relay.local",
 		"Топ получателей MAX:",
+		"Агрегировано по получателям MAX:",
+		"- Уникальных получателей: 2",
+		"- alerts (id=123): всего 2, доставлено 1, ошибок 1",
 	} {
 		if !strings.Contains(report, want) {
 			t.Fatalf("expected report to contain %q, got %q", want, report)
