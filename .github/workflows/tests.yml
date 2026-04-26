@@ -35,6 +35,9 @@ jobs:
       - name: Run tests
         run: go test -mod=mod ./...
 
+      - name: Run race detector
+        run: go test -mod=mod -race ./...
+
       - name: Resolve build number
         id: build_meta
         run: echo "build_number=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
