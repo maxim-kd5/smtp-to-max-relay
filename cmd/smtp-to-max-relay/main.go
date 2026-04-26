@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"smtp-to-max-relay/internal/config"
 	"smtp-to-max-relay/internal/email"
@@ -99,9 +100,23 @@ func main() {
 	}
 
 	if cfg.MetricsListenAddr != "" {
+		metricsSrv := &http.Server{
+			Addr:    cfg.MetricsListenAddr,
+			Handler: m.Handler(),
+		}
+
+		go func() {
+			<-ctx.Done()
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
+				log.Printf("metrics shutdown error: %v", err)
+			}
+		}()
+
 		go func() {
 			log.Printf("metrics listening on %s", cfg.MetricsListenAddr)
-			if err := http.ListenAndServe(cfg.MetricsListenAddr, m.Handler()); err != nil {
+			if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				log.Printf("metrics server stopped: %v", err)
 			}
 		}()

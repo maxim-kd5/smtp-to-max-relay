@@ -16,14 +16,21 @@ import (
 )
 
 type Server struct {
-	addr     string
-	domain   string
-	maxBytes int64
-	relaySvc *relay.Service
+	addr         string
+	domain       string
+	maxBytes     int64
+	relaySvc     *relay.Service
+	writeTimeout time.Duration
 }
 
 func NewServer(addr, domain string, maxBytes int64, relaySvc *relay.Service) *Server {
-	return &Server{addr: addr, domain: domain, maxBytes: maxBytes, relaySvc: relaySvc}
+	return &Server{
+		addr:         addr,
+		domain:       domain,
+		maxBytes:     maxBytes,
+		relaySvc:     relaySvc,
+		writeTimeout: 30 * time.Second,
+	}
 }
 
 func (s *Server) ListenAndServe(ctx context.Context) error {
@@ -68,7 +75,9 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 	r := bufio.NewReader(conn)
 	w := bufio.NewWriter(conn)
 
-	writeLine(w, "220 smtp-to-max-relay ESMTP")
+	if !writeLine(conn, w, "220 smtp-to-max-relay ESMTP", s.writeTimeout) {
+		return
+	}
 
 	var rcpts []string
 	authenticated := false
@@ -80,7 +89,7 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 		line, err := r.ReadString('\n')
 		if err != nil {
 			if err != io.EOF {
-				writeLine(w, "421 read error")
+				_ = writeLine(conn, w, "421 read error", s.writeTimeout)
 			}
 			return
 		}
@@ -89,52 +98,78 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 
 		switch {
 		case strings.HasPrefix(ucmd, "EHLO"):
-			writeLine(w, "250-Hello")
-			writeLine(w, "250-AUTH PLAIN")
-			writeLine(w, fmt.Sprintf("250 SIZE %d", s.maxBytes))
+			if !writeLine(conn, w, "250-Hello", s.writeTimeout) {
+				return
+			}
+			if !writeLine(conn, w, "250-AUTH PLAIN", s.writeTimeout) {
+				return
+			}
+			if !writeLine(conn, w, fmt.Sprintf("250 SIZE %d", s.maxBytes), s.writeTimeout) {
+				return
+			}
 
 		case strings.HasPrefix(ucmd, "HELO"):
-			writeLine(w, "250 Hello")
+			if !writeLine(conn, w, "250 Hello", s.writeTimeout) {
+				return
+			}
 
 		case strings.HasPrefix(ucmd, "AUTH PLAIN"):
 			// relay mode: accept any credentials
 			authenticated = true
-			writeLine(w, "235 2.7.0 Authentication successful")
+			if !writeLine(conn, w, "235 2.7.0 Authentication successful", s.writeTimeout) {
+				return
+			}
 
 		case strings.HasPrefix(ucmd, "MAIL FROM:"):
 			// auth is optional in relay mode; accept both authenticated and anonymous flows
 			_ = authenticated
 			rcpts = rcpts[:0]
-			writeLine(w, "250 OK")
+			if !writeLine(conn, w, "250 OK", s.writeTimeout) {
+				return
+			}
 
 		case strings.HasPrefix(ucmd, "RCPT TO:"):
 			addr := extractSMTPPath(cmd[len("RCPT TO:"):])
 			if addr == "" {
-				writeLine(w, "501 bad recipient")
+				if !writeLine(conn, w, "501 bad recipient", s.writeTimeout) {
+					return
+				}
 				continue
 			}
 			if !isAllowedRecipient(addr, s.domain) {
-				writeLine(w, "550 recipient domain is not allowed")
+				if !writeLine(conn, w, "550 recipient domain is not allowed", s.writeTimeout) {
+					return
+				}
 				continue
 			}
 			if s.relaySvc != nil && s.relaySvc.Recipients != nil {
 				if _, err := s.relaySvc.Recipients.Parse(addr); err != nil {
-					writeLine(w, "550 recipient is invalid")
+					if !writeLine(conn, w, "550 recipient is invalid", s.writeTimeout) {
+						return
+					}
 					continue
 				}
 			}
 			rcpts = append(rcpts, addr)
-			writeLine(w, "250 OK")
+			if !writeLine(conn, w, "250 OK", s.writeTimeout) {
+				return
+			}
 
 		case ucmd == "DATA":
 			if len(rcpts) == 0 {
-				writeLine(w, "503 need RCPT TO first")
+				if !writeLine(conn, w, "503 need RCPT TO first", s.writeTimeout) {
+					return
+				}
 				continue
 			}
-			writeLine(w, "354 End data with <CR><LF>.<CR><LF>")
+			if !writeLine(conn, w, "354 End data with <CR><LF>.<CR><LF>", s.writeTimeout) {
+				return
+			}
 			raw, err := readData(r, s.maxBytes)
 			if err != nil {
-				writeLine(w, "552 message exceeds fixed maximum message size")
+				if !writeLine(conn, w, "552 message exceeds fixed maximum message size", s.writeTimeout) {
+					return
+				}
 				continue
 			}
 			failed := false
@@ -146,31 +181,46 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 				}
 			}
 			if failed {
-				writeLine(w, "451 relay failure")
+				if !writeLine(conn, w, "451 relay failure", s.writeTimeout) {
+					return
+				}
 				continue
 			}
-			writeLine(w, "250 OK")
+			if !writeLine(conn, w, "250 OK", s.writeTimeout) {
+				return
+			}
 
 		case ucmd == "RSET":
 			rcpts = rcpts[:0]
-			writeLine(w, "250 OK")
+			if !writeLine(conn, w, "250 OK", s.writeTimeout) {
+				return
+			}
 
 		case ucmd == "NOOP":
-			writeLine(w, "250 OK")
+			if !writeLine(conn, w, "250 OK", s.writeTimeout) {
+				return
+			}
 
 		case ucmd == "QUIT":
-			writeLine(w, "221 Bye")
+			_ = writeLine(conn, w, "221 Bye", s.writeTimeout)
 			return
 
 		default:
-			writeLine(w, "502 command not implemented")
+			if !writeLine(conn, w, "502 command not implemented", s.writeTimeout) {
+				return
+			}
 		}
 	}
 }
 
-func writeLine(w *bufio.Writer, line string) {
-	_, _ = w.WriteString(line + "\r\n")
-	_ = w.Flush()
+func writeLine(conn net.Conn, w *bufio.Writer, line string, timeout time.Duration) bool {
+	if err := conn.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+		return false
+	}
+	if _, err := w.WriteString(line + "\r\n"); err != nil {
+		return false
+	}
+	return w.Flush() == nil
 }
 
 func extractSMTPPath(v string) string {
