@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"math/rand"
+	"sync"
 	"time"
 )
 
@@ -26,6 +27,9 @@ type Worker struct {
 	Metrics        Metrics
 	RandomJitter   time.Duration
 	AttemptTimeout time.Duration
+
+	rndMu sync.Mutex
+	rnd   *rand.Rand
 }
 
 func (w *Worker) Run(ctx context.Context) {
@@ -110,5 +114,17 @@ func (w *Worker) nextDelay(attempt int) time.Duration {
 	if j <= 0 {
 		j = 250 * time.Millisecond
 	}
-	return d + time.Duration(rand.Int63n(int64(j)))
+	return d + time.Duration(w.randInt63n(int64(j)))
+}
+
+func (w *Worker) randInt63n(n int64) int64 {
+	if n <= 0 {
+		return 0
+	}
+	w.rndMu.Lock()
+	defer w.rndMu.Unlock()
+	if w.rnd == nil {
+		w.rnd = rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
+	}
+	return w.rnd.Int63n(n)
 }
