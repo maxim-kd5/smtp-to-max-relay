@@ -50,6 +50,7 @@ When delivery to MAX fails after immediate retries, the raw message is saved to 
 Метрики включают счётчики принятых/успешных/ошибочных сообщений и детализацию пересылок:
 `smtp_relay_delivery_total{address,delivered,max_recipient_id,max_recipient_name}`.
 `max_recipient_name` — локальная часть исходного SMTP-адреса (например alias или `chatid...`).
+Для DLQ дополнительно экспортируются `smtp_relay_dlq_pending`, `smtp_relay_dlq_failed`, `smtp_relay_dlq_done`.
 Также публикуется гистограмма задержек `smtp_relay_latency_seconds` со stage:
 `email_parse`, `max_send`, `relay_total`.
 

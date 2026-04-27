@@ -13,6 +13,7 @@ type RelayFunc func(ctx context.Context, rcpt string, rawMessage []byte) error
 type Metrics interface {
 	IncDLQReplayed()
 	IncDLQReplayFailed()
+	SetDLQBacklog(pending, failed, done uint64)
 }
 
 type Worker struct {
@@ -53,6 +54,8 @@ func (w *Worker) Run(ctx context.Context) {
 }
 
 func (w *Worker) runOnce(ctx context.Context) {
+	defer w.updateBacklogMetrics()
+
 	items, err := w.Store.PickDue(w.BatchSize, time.Now().UTC())
 	if err != nil {
 		log.Printf("dlq pick due failed: %v", err)
@@ -89,6 +92,14 @@ func (w *Worker) runOnce(ctx context.Context) {
 			w.Metrics.IncDLQReplayFailed()
 		}
 	}
+}
+
+func (w *Worker) updateBacklogMetrics() {
+	if w.Store == nil || w.Metrics == nil {
+		return
+	}
+	st := w.Store.Stats()
+	w.Metrics.SetDLQBacklog(st.Pending, st.Failed, st.Done)
 }
 
 func (w *Worker) nextDelay(attempt int) time.Duration {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -88,6 +89,27 @@ func TestWorkerRunOnceRespectsAttemptTimeout(t *testing.T) {
 	}
 }
 
+func TestWorkerUpdatesBacklogMetrics(t *testing.T) {
+	store := mustNewStore(t)
+	if _, err := store.Enqueue("chatid1@relay.local", []byte("msg"), nil); err != nil {
+		t.Fatalf("enqueue failed: %v", err)
+	}
+
+	m := &captureDLQMetrics{}
+	w := &Worker{
+		Store:     store,
+		Relay:     func(_ context.Context, _ string, _ []byte) error { return nil },
+		BatchSize: 10,
+		Metrics:   m,
+	}
+	w.runOnce(context.Background())
+
+	pending, failed, done := m.snapshot()
+	if pending != 0 || failed != 0 || done != 1 {
+		t.Fatalf("unexpected dlq backlog metrics pending=%d failed=%d done=%d", pending, failed, done)
+	}
+}
+
 func mustNewStore(t *testing.T) *FileStore {
 	t.Helper()
 	store, err := NewFileStore(filepath.Join(t.TempDir(), "dlq.json"))
@@ -106,4 +128,27 @@ func mustGetItem(t *testing.T, s *FileStore, id string) Item {
 		t.Fatalf("item %s not found", id)
 	}
 	return item
+}
+
+type captureDLQMetrics struct {
+	mu      sync.Mutex
+	pending uint64
+	failed  uint64
+	done    uint64
+}
+
+func (c *captureDLQMetrics) IncDLQReplayed()     {}
+func (c *captureDLQMetrics) IncDLQReplayFailed() {}
+func (c *captureDLQMetrics) SetDLQBacklog(pending, failed, done uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pending = pending
+	c.failed = failed
+	c.done = done
+}
+
+func (c *captureDLQMetrics) snapshot() (uint64, uint64, uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.pending, c.failed, c.done
 }
