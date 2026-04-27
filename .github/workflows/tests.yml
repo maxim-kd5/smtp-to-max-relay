@@ -5,6 +5,10 @@ on:
     branches:
       - '**'
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
 
 permissions:
   contents: read
@@ -56,7 +60,7 @@ jobs:
           if-no-files-found: error
 
       - name: Login to GHCR
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false)
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -64,11 +68,13 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push image to GHCR
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false)
         run: |
-          IMAGE="ghcr.io/${{ github.repository }}:sha-${{ github.sha }}"
-          docker tag smtp-to-max-relay:ci "$IMAGE"
-          docker push "$IMAGE"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            IMAGE="ghcr.io/${{ github.repository }}:sha-${{ github.sha }}"
+            docker tag smtp-to-max-relay:ci "$IMAGE"
+            docker push "$IMAGE"
+          fi
 
           docker build \
             --build-arg BUILD_NUMBER=${{ steps.build_meta.outputs.build_number }} \
@@ -76,7 +82,7 @@ jobs:
             -t "ghcr.io/${{ github.repository }}:dev" .
           docker push "ghcr.io/${{ github.repository }}:dev"
 
-          if [ "${{ github.ref_name }}" = "main" ]; then
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_name }}" = "main" ]; then
             docker tag smtp-to-max-relay:ci "ghcr.io/${{ github.repository }}:latest"
             docker push "ghcr.io/${{ github.repository }}:latest"
           fi

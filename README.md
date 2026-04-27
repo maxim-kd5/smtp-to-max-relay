@@ -13,6 +13,7 @@ Environment variables:
 
 - `SMTP_LISTEN_ADDR` (default `:25`)
 - `SMTP_MAX_MESSAGE_BYTES` (default `15728640`)
+- `SMTP_MAX_CONCURRENT_SESSIONS` (default `200`)
 - `SMTP_ALLOWED_RCPT_DOMAIN` (default `relay.local`)
 - `ALIAS_FILE_PATH` (default `./config/aliases.json`)
 - `ADMIN_CHAT_ID` (optional; MAX chat ID пользователя с админским доступом; в этом чате доступны админ-команды)

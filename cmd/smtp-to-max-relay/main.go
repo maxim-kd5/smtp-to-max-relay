@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"smtp-to-max-relay/internal/config"
 	"smtp-to-max-relay/internal/email"
@@ -70,7 +72,13 @@ func main() {
 		Metrics:        m,
 	}
 
-	server := smtpsrv.NewServer(cfg.SMTPListenAddr, cfg.SMTPAllowedDomain, cfg.SMTPMaxMessageBytes, relaySvc)
+	server := smtpsrv.NewServer(
+		cfg.SMTPListenAddr,
+		cfg.SMTPAllowedDomain,
+		cfg.SMTPMaxMessageBytes,
+		cfg.SMTPMaxSessions,
+		relaySvc,
+	)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -99,10 +107,24 @@ func main() {
 	}
 
 	if cfg.MetricsListenAddr != "" {
+		metricsServer := &http.Server{
+			Addr:    cfg.MetricsListenAddr,
+			Handler: m.Handler(),
+		}
+
 		go func() {
 			log.Printf("metrics listening on %s", cfg.MetricsListenAddr)
-			if err := http.ListenAndServe(cfg.MetricsListenAddr, m.Handler()); err != nil {
+			if err := metricsServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Printf("metrics server stopped: %v", err)
+			}
+		}()
+
+		go func() {
+			<-ctx.Done()
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+				log.Printf("metrics shutdown error: %v", err)
 			}
 		}()
 	}
