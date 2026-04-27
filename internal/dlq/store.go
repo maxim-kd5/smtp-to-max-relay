@@ -1,7 +1,9 @@
 package dlq
 
 import (
+	"crypto/rand"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -23,6 +25,7 @@ const (
 
 type Item struct {
 	ID          string    `json:"id"`
+	Fingerprint string    `json:"fingerprint,omitempty"`
 	Recipient   string    `json:"recipient"`
 	RawMessage  []byte    `json:"raw_message"`
 	LastError   string    `json:"last_error,omitempty"`
@@ -65,9 +68,19 @@ func (s *FileStore) Enqueue(recipient string, rawMessage []byte, lastErr error) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now().UTC()
-	h := sha1.Sum([]byte(fmt.Sprintf("%s|%d|%x", recipient, now.UnixNano(), rawMessage)))
+	fingerprint := payloadFingerprint(recipient, rawMessage)
+	for _, existing := range s.items {
+		if existing.Fingerprint != "" &&
+			existing.Fingerprint == fingerprint &&
+			(existing.Status == StatusPending || existing.Status == StatusProcessing) {
+			return existing, nil
+		}
+	}
+
+	h := sha1.Sum([]byte(fmt.Sprintf("%d|%x|%x", now.UnixNano(), randomBytes(8), rawMessage)))
 	item := Item{
 		ID:          hex.EncodeToString(h[:]),
+		Fingerprint: fingerprint,
 		Recipient:   recipient,
 		RawMessage:  append([]byte(nil), rawMessage...),
 		Status:      StatusPending,
@@ -190,6 +203,12 @@ func (s *FileStore) load() error {
 		return err
 	}
 	for _, item := range items {
+		if item.Status == StatusProcessing {
+			item.Status = StatusPending
+		}
+		if item.Fingerprint == "" {
+			item.Fingerprint = payloadFingerprint(item.Recipient, item.RawMessage)
+		}
 		s.items[item.ID] = item
 	}
 	return nil
@@ -211,5 +230,26 @@ func (s *FileStore) persistLocked() error {
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(s.path, data, 0o644)
+
+	tmpPath := s.path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, s.path)
+}
+
+func payloadFingerprint(recipient string, rawMessage []byte) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%x", recipient, rawMessage)))
+	return hex.EncodeToString(sum[:])
+}
+
+func randomBytes(size int) []byte {
+	if size <= 0 {
+		return nil
+	}
+	b := make([]byte, size)
+	if _, err := rand.Read(b); err != nil {
+		return []byte(time.Now().UTC().Format(time.RFC3339Nano))
+	}
+	return b
 }

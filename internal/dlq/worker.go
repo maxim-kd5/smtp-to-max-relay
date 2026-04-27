@@ -15,16 +15,17 @@ type Metrics interface {
 }
 
 type Worker struct {
-	Store        Store
-	Relay        RelayFunc
-	Interval     time.Duration
-	BaseDelay    time.Duration
-	MaxDelay     time.Duration
-	MaxRetries   int
-	BatchSize    int
-	WithReplay   func(context.Context) context.Context
-	Metrics      Metrics
-	RandomJitter time.Duration
+	Store          Store
+	Relay          RelayFunc
+	Interval       time.Duration
+	BaseDelay      time.Duration
+	MaxDelay       time.Duration
+	MaxRetries     int
+	BatchSize      int
+	WithReplay     func(context.Context) context.Context
+	Metrics        Metrics
+	RandomJitter   time.Duration
+	AttemptTimeout time.Duration
 }
 
 func (w *Worker) Run(ctx context.Context) {
@@ -58,7 +59,33 @@ func (w *Worker) runOnce(ctx context.Context) {
 		if w.WithReplay != nil {
 			replayCtx = w.WithReplay(ctx)
 		}
-		err := w.Relay(replayCtx, item.Recipient, item.RawMessage)
+
+		attemptCtx := replayCtx
+		if timeout := w.AttemptTimeout; timeout > 0 {
+			var cancel context.CancelFunc
+			attemptCtx, cancel = context.WithTimeout(replayCtx, timeout)
+			err := w.Relay(attemptCtx, item.Recipient, item.RawMessage)
+			cancel()
+			if err == nil {
+				if markErr := w.Store.MarkDone(item.ID); markErr != nil {
+					log.Printf("dlq mark done failed id=%s: %v", item.ID, markErr)
+				}
+				if w.Metrics != nil {
+					w.Metrics.IncDLQReplayed()
+				}
+				continue
+			}
+			next := time.Now().UTC().Add(w.nextDelay(item.Attempt + 1))
+			if markErr := w.Store.MarkRetry(item.ID, next, err, w.MaxRetries); markErr != nil {
+				log.Printf("dlq mark retry failed id=%s: %v", item.ID, markErr)
+			}
+			if w.Metrics != nil {
+				w.Metrics.IncDLQReplayFailed()
+			}
+			continue
+		}
+
+		err := w.Relay(attemptCtx, item.Recipient, item.RawMessage)
 		if err == nil {
 			if markErr := w.Store.MarkDone(item.ID); markErr != nil {
 				log.Printf("dlq mark done failed id=%s: %v", item.ID, markErr)

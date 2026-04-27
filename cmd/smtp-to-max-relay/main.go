@@ -91,15 +91,16 @@ func main() {
 		log.Printf("DLQ enabled path=%s", cfg.DLQFilePath)
 
 		dlqWorker := &dlq.Worker{
-			Store:      dlqStore,
-			Relay:      relaySvc.Relay,
-			Interval:   cfg.DLQWorkerInterval,
-			BaseDelay:  cfg.DLQBaseDelay,
-			MaxDelay:   cfg.DLQMaxDelay,
-			MaxRetries: cfg.DLQMaxRetries,
-			BatchSize:  10,
-			WithReplay: relay.WithDLQBypass,
-			Metrics:    m,
+			Store:          dlqStore,
+			Relay:          relaySvc.Relay,
+			Interval:       cfg.DLQWorkerInterval,
+			BaseDelay:      cfg.DLQBaseDelay,
+			MaxDelay:       cfg.DLQMaxDelay,
+			MaxRetries:     cfg.DLQMaxRetries,
+			BatchSize:      10,
+			WithReplay:     relay.WithDLQBypass,
+			Metrics:        m,
+			AttemptTimeout: cfg.MaxSendTimeout,
 		}
 		go dlqWorker.Run(ctx)
 	}
