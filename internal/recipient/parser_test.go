@@ -3,13 +3,13 @@ package recipient
 import "testing"
 
 func TestParseAliasWithSilentFlag(t *testing.T) {
-	p := NewParser("relay.local", map[string]string{"alerts": "chatid123.silent"})
+	p := NewParser("relay.local", map[string][]string{"alerts": []string{"chatid123.silent"}})
 
 	pr, err := p.Parse("alerts@relay.local")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	if pr.ChatID != "123" || !pr.Silent {
+	if len(pr.Targets) != 1 || pr.Targets[0].ChatID != "123" || !pr.Targets[0].Silent {
 		t.Fatalf("unexpected parse result: %+v", pr)
 	}
 }
@@ -32,7 +32,7 @@ func TestParseRejectsForeignDomain(t *testing.T) {
 }
 
 func TestParseRejectsAliasMappedToThreadSyntax(t *testing.T) {
-	p := NewParser("relay.local", map[string]string{"alerts": "chatid123!7.silent"})
+	p := NewParser("relay.local", map[string][]string{"alerts": []string{"chatid123!7.silent"}})
 	if _, err := p.Parse("alerts@relay.local"); err == nil {
 		t.Fatalf("expected error for alias with thread syntax")
 	}
@@ -64,9 +64,26 @@ func TestParsePrefixedChatID(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected err for %q: %v", tc.addr, err)
 		}
-		if pr.ChatID != tc.chatID || pr.Silent != tc.silent {
+		if len(pr.Targets) != 1 || pr.Targets[0].ChatID != tc.chatID || pr.Targets[0].Silent != tc.silent {
 			t.Fatalf("unexpected parse result for %q: %+v", tc.addr, pr)
 		}
+	}
+}
+
+func TestParseAliasGroup(t *testing.T) {
+	p := NewParser("relay.local", map[string][]string{"alerts": []string{"chatid123", "chatid456.silent"}})
+	pr, err := p.Parse("alerts@relay.local")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(pr.Targets) != 2 {
+		t.Fatalf("expected 2 targets, got %d", len(pr.Targets))
+	}
+	if pr.Targets[0].ChatID != "123" || pr.Targets[0].Silent {
+		t.Fatalf("unexpected first target: %+v", pr.Targets[0])
+	}
+	if pr.Targets[1].ChatID != "456" || !pr.Targets[1].Silent {
+		t.Fatalf("unexpected second target: %+v", pr.Targets[1])
 	}
 }
 

@@ -13,7 +13,7 @@ import (
 )
 
 type testAliasAdmin struct {
-	values map[string]string
+	values map[string][]string
 }
 
 type testStatsReporter struct {
@@ -60,21 +60,57 @@ func (a *testAliasAdmin) ValidateAliasTarget(local string) error {
 	return nil
 }
 
-func (a *testAliasAdmin) SetAlias(alias, target string) {
+func (a *testAliasAdmin) SetAliasGroup(alias string, targets []string) {
 	if a.values == nil {
-		a.values = map[string]string{}
+		a.values = map[string][]string{}
 	}
-	a.values[alias] = target
+	a.values[alias] = append([]string(nil), targets...)
+}
+
+func (a *testAliasAdmin) AddAliasTargets(alias string, targets []string) {
+	existing := a.values[alias]
+	seen := map[string]struct{}{}
+	for _, item := range existing {
+		seen[item] = struct{}{}
+	}
+	for _, item := range targets {
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		existing = append(existing, item)
+	}
+	a.values[alias] = existing
+}
+
+func (a *testAliasAdmin) RemoveAliasTargets(alias string, targets []string) {
+	existing := a.values[alias]
+	remove := map[string]struct{}{}
+	for _, item := range targets {
+		remove[item] = struct{}{}
+	}
+	updated := make([]string, 0, len(existing))
+	for _, item := range existing {
+		if _, ok := remove[item]; ok {
+			continue
+		}
+		updated = append(updated, item)
+	}
+	if len(updated) == 0 {
+		delete(a.values, alias)
+		return
+	}
+	a.values[alias] = updated
 }
 
 func (a *testAliasAdmin) DeleteAlias(alias string) {
 	delete(a.values, alias)
 }
 
-func (a *testAliasAdmin) SnapshotAliases() map[string]string {
-	out := map[string]string{}
+func (a *testAliasAdmin) SnapshotAliases() map[string][]string {
+	out := map[string][]string{}
 	for k, v := range a.values {
-		out[k] = v
+		out[k] = append([]string(nil), v...)
 	}
 	return out
 }
@@ -101,7 +137,7 @@ func (s *startupNotifySender) SendFile(_ context.Context, _ string, _ email.Atta
 }
 
 func TestMaybeHandleAdminAliasCommandSetAndRemove(t *testing.T) {
-	a := &testAliasAdmin{values: map[string]string{}}
+	a := &testAliasAdmin{values: map[string][]string{}}
 	dir := t.TempDir()
 	file := dir + "/aliases.json"
 	admin := &schemes.User{UserId: 42}
@@ -110,7 +146,7 @@ func TestMaybeHandleAdminAliasCommandSetAndRemove(t *testing.T) {
 	if !ok || !strings.Contains(reply, "Алиас сохранён") {
 		t.Fatalf("unexpected set reply: ok=%v reply=%q", ok, reply)
 	}
-	if got := a.values["alerts"]; got != "chatid123.silent" {
+	if got := a.values["alerts"]; len(got) != 1 || got[0] != "chatid123.silent" {
 		t.Fatalf("unexpected alias value: %q", got)
 	}
 
@@ -124,20 +160,20 @@ func TestMaybeHandleAdminAliasCommandSetAndRemove(t *testing.T) {
 }
 
 func TestMaybeHandleAdminAliasCommandAcceptsNumericTarget(t *testing.T) {
-	a := &testAliasAdmin{values: map[string]string{}}
+	a := &testAliasAdmin{values: map[string][]string{}}
 	admin := &schemes.User{UserId: 42}
 
 	reply, ok := maybeHandleAdminAliasCommand("/alias admin 260920412", admin, 100, t.TempDir()+"/aliases.json", a, nil, 100)
 	if !ok || !strings.Contains(reply, "Алиас сохранён") {
 		t.Fatalf("unexpected set reply: ok=%v reply=%q", ok, reply)
 	}
-	if got := a.values["admin"]; got != "chatid260920412" {
+	if got := a.values["admin"]; len(got) != 1 || got[0] != "chatid260920412" {
 		t.Fatalf("expected numeric target to be normalized to chatid prefix, got %q", got)
 	}
 }
 
 func TestMaybeHandleAdminAliasCommandRejectsNonAdmin(t *testing.T) {
-	a := &testAliasAdmin{values: map[string]string{}}
+	a := &testAliasAdmin{values: map[string][]string{}}
 	if _, ok := maybeHandleAdminAliasCommand("/alias alerts chatid123", &schemes.User{UserId: 5}, 101, t.TempDir()+"/aliases.json", a, nil, 100); ok {
 		t.Fatalf("expected non-admin chat id command to be ignored")
 	}
@@ -160,7 +196,7 @@ func TestMaybeHandleAdminAliasCommandStats30d(t *testing.T) {
 }
 
 func TestMaybeHandleAdminAliasCommandAliasesList(t *testing.T) {
-	a := &testAliasAdmin{values: map[string]string{"alerts": "chatid123.silent", "ops": "chatid-77"}}
+	a := &testAliasAdmin{values: map[string][]string{"alerts": []string{"chatid123.silent", "chatid999"}, "ops": []string{"chatid-77"}}}
 	reply, ok := maybeHandleAdminAliasCommand("/aliases", &schemes.User{UserId: 42}, 100, "", a, nil, 100)
 	if !ok {
 		t.Fatalf("expected command to be handled")
@@ -168,7 +204,7 @@ func TestMaybeHandleAdminAliasCommandAliasesList(t *testing.T) {
 	if !strings.Contains(reply, "Алиасы (имя -> chatid -> чат):") {
 		t.Fatalf("unexpected list header: %q", reply)
 	}
-	if !strings.Contains(reply, "- alerts -> 123 -> (название чата недоступно через Bot API)") {
+	if !strings.Contains(reply, "- alerts -> 123,999 -> (название чата недоступно через Bot API)") {
 		t.Fatalf("expected alerts entry, got %q", reply)
 	}
 	if !strings.Contains(reply, "- ops -> -77 -> (название чата недоступно через Bot API)") {
@@ -245,6 +281,46 @@ func TestNormalizeAliasTarget(t *testing.T) {
 	}
 	if _, err := normalizeAliasTarget("bad-target"); err == nil {
 		t.Fatalf("expected validation error for bad target")
+	}
+}
+
+func TestNormalizeAliasTargetsArg(t *testing.T) {
+	got, err := normalizeAliasTargetsArg("260920412,chatid-77.silent,260920412")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(got) != 2 || got[0] != "chatid260920412" || got[1] != "chatid-77.silent" {
+		t.Fatalf("unexpected normalized targets: %#v", got)
+	}
+}
+
+func TestMaybeHandleAdminAliasGroupCommands(t *testing.T) {
+	a := &testAliasAdmin{values: map[string][]string{}}
+	admin := &schemes.User{UserId: 42}
+	file := t.TempDir() + "/aliases.json"
+
+	reply, ok := maybeHandleAdminAliasCommand("/alias_group alerts chatid1,chatid2.silent", admin, 100, file, a, nil, 100)
+	if !ok || !strings.Contains(reply, "Группа алиаса сохранена") {
+		t.Fatalf("unexpected /alias_group reply: ok=%v reply=%q", ok, reply)
+	}
+	if got := a.values["alerts"]; len(got) != 2 {
+		t.Fatalf("unexpected group targets after /alias_group: %#v", got)
+	}
+
+	reply, ok = maybeHandleAdminAliasCommand("/alias_add alerts chatid3", admin, 100, file, a, nil, 100)
+	if !ok || !strings.Contains(reply, "Target'ы добавлены") {
+		t.Fatalf("unexpected /alias_add reply: ok=%v reply=%q", ok, reply)
+	}
+	if got := a.values["alerts"]; len(got) != 3 {
+		t.Fatalf("unexpected targets after /alias_add: %#v", got)
+	}
+
+	reply, ok = maybeHandleAdminAliasCommand("/alias_remove alerts chatid2.silent", admin, 100, file, a, nil, 100)
+	if !ok || !strings.Contains(reply, "Target'ы удалены") {
+		t.Fatalf("unexpected /alias_remove reply: ok=%v reply=%q", ok, reply)
+	}
+	if got := a.values["alerts"]; len(got) != 2 {
+		t.Fatalf("unexpected targets after /alias_remove: %#v", got)
 	}
 }
 

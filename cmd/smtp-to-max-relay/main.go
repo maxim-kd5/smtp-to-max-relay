@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"smtp-to-max-relay/internal/config"
@@ -29,6 +30,8 @@ func main() {
 		log.Fatalf("aliases error: %v", err)
 	}
 
+	m := metrics.NewCollector()
+
 	var (
 		sender      max.Sender
 		botSender   *max.BotSender
@@ -43,6 +46,12 @@ func main() {
 			log.Fatalf("max sender error: %v", err)
 		}
 		sender = botSender
+		sender = max.NewRateLimitedSender(sender, max.RateLimiterConfig{
+			RPS:           cfg.MaxSendRPS,
+			Burst:         cfg.MaxBurst,
+			QueueCapacity: cfg.MaxQueueCapacity,
+			QueueWait:     cfg.MaxQueueWait,
+		}, m)
 		log.Printf("using MAX sender mode=botapi")
 
 		notifyCtx, cancel := context.WithTimeout(context.Background(), cfg.MaxSendTimeout)
@@ -64,11 +73,15 @@ func main() {
 			log.Printf("MAX bot connected user_id=%d first_name=%q username=%q", botInfo.UserId, botInfo.FirstName, botInfo.Username)
 		}
 	default:
-		sender = max.NewStubSender()
+		sender = max.NewRateLimitedSender(max.NewStubSender(), max.RateLimiterConfig{
+			RPS:           cfg.MaxSendRPS,
+			Burst:         cfg.MaxBurst,
+			QueueCapacity: cfg.MaxQueueCapacity,
+			QueueWait:     cfg.MaxQueueWait,
+		}, m)
 		log.Printf("using MAX sender mode=stub")
 	}
 
-	m := metrics.NewCollector()
 	recipients := recipient.NewParser(cfg.SMTPAllowedDomain, aliases)
 	var dlqAdmin max.DLQAdmin
 
@@ -118,8 +131,11 @@ func main() {
 				if err != nil {
 					return "", err
 				}
-				return "маршрут валиден: chat_id=" + pr.ChatID + ", silent=" + map[bool]string{true: "true", false: "false"}[pr.Silent] +
-					", attachments=" + fmt.Sprintf("%d", len(em.Attachments)), nil
+				targetSummaries := make([]string, 0, len(pr.Targets))
+				for _, target := range pr.Targets {
+					targetSummaries = append(targetSummaries, fmt.Sprintf("%s(silent=%t)", target.ChatID, target.Silent))
+				}
+				return fmt.Sprintf("маршрут валиден: targets=%s, attachments=%d", strings.Join(targetSummaries, ","), len(em.Attachments)), nil
 			},
 			WithReplay: relay.WithDLQBypass,
 			MaxRetries: cfg.DLQMaxRetries,
