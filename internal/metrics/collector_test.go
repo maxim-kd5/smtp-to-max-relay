@@ -4,6 +4,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCollectorHandler(t *testing.T) {
@@ -12,6 +13,8 @@ func TestCollectorHandler(t *testing.T) {
 	c.IncRelayed()
 	c.IncTextSent()
 	c.IncFilesSent()
+	c.ObserveLatency("email_parse", 20*time.Millisecond)
+	c.ObserveLatency("max_send", 120*time.Millisecond)
 	c.ObserveDelivery("alerts@relay.local", true, "123", "alerts")
 	c.ObserveDelivery("bad@relay.local", false, "", "")
 
@@ -26,6 +29,8 @@ func TestCollectorHandler(t *testing.T) {
 		"smtp_relay_failed_total 0",
 		"smtp_relay_text_sent_total 1",
 		"smtp_relay_files_sent_total 1",
+		`smtp_relay_latency_seconds_count{stage="email_parse"} 1`,
+		`smtp_relay_latency_seconds_count{stage="max_send"} 1`,
 		`smtp_relay_delivery_total{address="alerts@relay.local",delivered="true",max_recipient_id="123",max_recipient_name="alerts"} 1`,
 		`smtp_relay_delivery_total{address="bad@relay.local",delivered="false",max_recipient_id="",max_recipient_name=""} 1`,
 	} {

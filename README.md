@@ -13,6 +13,7 @@ Environment variables:
 
 - `SMTP_LISTEN_ADDR` (default `:25`)
 - `SMTP_MAX_MESSAGE_BYTES` (default `15728640`)
+- `SMTP_MAX_CONCURRENT_SESSIONS` (default `200`)
 - `SMTP_ALLOWED_RCPT_DOMAIN` (default `relay.local`)
 - `ALIAS_FILE_PATH` (default `./config/aliases.json`)
 - `ADMIN_CHAT_ID` (optional; MAX chat ID пользователя с админским доступом; в этом чате доступны админ-команды)
@@ -41,6 +42,8 @@ SMTP server does not perform outgoing SMTP delivery and does not forward emails 
 Метрики включают счётчики принятых/успешных/ошибочных сообщений и детализацию пересылок:
 `smtp_relay_delivery_total{address,delivered,max_recipient_id,max_recipient_name}`.
 `max_recipient_name` — локальная часть исходного SMTP-адреса (например alias или `chatid...`).
+Также публикуется гистограмма задержек `smtp_relay_latency_seconds` со stage:
+`email_parse`, `max_send`, `relay_total`.
 
 When `MAX_SENDER_MODE=botapi`, the service also receives bot updates and replies to:
 

@@ -3,6 +3,7 @@ package relay
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -11,6 +12,7 @@ import (
 	"smtp-to-max-relay/internal/max"
 	"smtp-to-max-relay/internal/metrics"
 	"smtp-to-max-relay/internal/recipient"
+	"smtp-to-max-relay/internal/trace"
 )
 
 const maxTextMessageBytes = 4000
@@ -25,12 +27,20 @@ type Service struct {
 }
 
 func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) error {
+	startedAt := time.Now()
+	defer func() {
+		if s.Metrics != nil {
+			s.Metrics.ObserveLatency("relay_total", time.Since(startedAt))
+		}
+	}()
+
 	if s.Metrics != nil {
 		s.Metrics.IncReceived()
 	}
 
 	pr, err := s.Recipients.Parse(rcpt)
 	if err != nil {
+		log.Printf("%srelay parse recipient failed rcpt=%s: %v", trace.Prefix(ctx), rcpt, err)
 		if s.Metrics != nil {
 			s.Metrics.IncFailed()
 			s.Metrics.ObserveDelivery(rcpt, false, "", "")
@@ -38,8 +48,13 @@ func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) err
 		return fmt.Errorf("parse recipient: %w", err)
 	}
 
+	parseStartedAt := time.Now()
 	em, err := s.Email.Parse(rawMessage)
+	if s.Metrics != nil {
+		s.Metrics.ObserveLatency("email_parse", time.Since(parseStartedAt))
+	}
 	if err != nil {
+		log.Printf("%srelay parse email failed rcpt=%s: %v", trace.Prefix(ctx), rcpt, err)
 		if s.Metrics != nil {
 			s.Metrics.IncFailed()
 			s.Metrics.ObserveDelivery(rcpt, false, pr.ChatID, pr.SourceLocal)
@@ -55,9 +70,15 @@ func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) err
 	text := fmt.Sprintf("📧 %s\nОт: %s\n\n%s", fallback(em.Subject, "(без темы)"), em.From, body)
 	for _, chunk := range splitTextMessage(text, maxTextMessageBytes) {
 		chunk := chunk
-		if err := s.sendWithRetry(ctx, func() error {
+		sendStartedAt := time.Now()
+		err := s.sendWithRetry(ctx, func() error {
 			return s.Sender.SendText(ctx, pr.ChatID, chunk, pr.Silent)
-		}); err != nil {
+		})
+		if s.Metrics != nil {
+			s.Metrics.ObserveLatency("max_send", time.Since(sendStartedAt))
+		}
+		if err != nil {
+			log.Printf("%srelay send text failed chat_id=%s rcpt=%s: %v", trace.Prefix(ctx), pr.ChatID, rcpt, err)
 			if s.Metrics != nil {
 				s.Metrics.IncFailed()
 				s.Metrics.ObserveDelivery(rcpt, false, pr.ChatID, pr.SourceLocal)
@@ -72,9 +93,15 @@ func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) err
 
 	for _, a := range em.Attachments {
 		att := a
-		if err := s.sendWithRetry(ctx, func() error {
+		sendStartedAt := time.Now()
+		err := s.sendWithRetry(ctx, func() error {
 			return s.Sender.SendFile(ctx, pr.ChatID, att, pr.Silent)
-		}); err != nil {
+		})
+		if s.Metrics != nil {
+			s.Metrics.ObserveLatency("max_send", time.Since(sendStartedAt))
+		}
+		if err != nil {
+			log.Printf("%srelay send file failed chat_id=%s file=%s rcpt=%s: %v", trace.Prefix(ctx), pr.ChatID, a.Filename, rcpt, err)
 			if s.Metrics != nil {
 				s.Metrics.IncFailed()
 				s.Metrics.ObserveDelivery(rcpt, false, pr.ChatID, pr.SourceLocal)
@@ -90,6 +117,7 @@ func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) err
 		s.Metrics.IncRelayed()
 		s.Metrics.ObserveDelivery(rcpt, true, pr.ChatID, pr.SourceLocal)
 	}
+	log.Printf("%srelay delivered rcpt=%s chat_id=%s attachments=%d", trace.Prefix(ctx), rcpt, pr.ChatID, len(em.Attachments))
 	return nil
 }
 

@@ -10,6 +10,7 @@ import (
 type Config struct {
 	SMTPListenAddr      string
 	SMTPMaxMessageBytes int64
+	SMTPMaxSessions     int
 	SMTPAllowedDomain   string
 	AliasFilePath       string
 	AdminChatID         int64
@@ -24,6 +25,10 @@ type Config struct {
 
 func Load() (Config, error) {
 	smtpMaxMessageBytes, err := getEnvInt64("SMTP_MAX_MESSAGE_BYTES", 15*1024*1024)
+	if err != nil {
+		return Config{}, err
+	}
+	smtpMaxSessions, err := getEnvInt("SMTP_MAX_CONCURRENT_SESSIONS", 200)
 	if err != nil {
 		return Config{}, err
 	}
@@ -47,6 +52,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		SMTPListenAddr:      getEnv("SMTP_LISTEN_ADDR", ":25"),
 		SMTPMaxMessageBytes: smtpMaxMessageBytes,
+		SMTPMaxSessions:     smtpMaxSessions,
 		SMTPAllowedDomain:   getEnv("SMTP_ALLOWED_RCPT_DOMAIN", "relay.local"),
 		AliasFilePath:       getEnv("ALIAS_FILE_PATH", "./config/aliases.json"),
 		AdminChatID:         adminChatID,
@@ -64,6 +70,9 @@ func Load() (Config, error) {
 	}
 	if cfg.SMTPMaxMessageBytes <= 0 {
 		return Config{}, fmt.Errorf("SMTP_MAX_MESSAGE_BYTES must be positive")
+	}
+	if cfg.SMTPMaxSessions <= 0 {
+		return Config{}, fmt.Errorf("SMTP_MAX_CONCURRENT_SESSIONS must be positive")
 	}
 	if cfg.MaxSenderMode != "stub" && cfg.MaxSenderMode != "botapi" {
 		return Config{}, fmt.Errorf("MAX_SENDER_MODE must be one of: stub, botapi")

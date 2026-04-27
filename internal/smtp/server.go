@@ -10,20 +10,30 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"smtp-to-max-relay/internal/relay"
+	"smtp-to-max-relay/internal/trace"
 )
 
 type Server struct {
-	addr     string
-	domain   string
-	maxBytes int64
-	relaySvc *relay.Service
+	addr        string
+	domain      string
+	maxBytes    int64
+	relaySvc    *relay.Service
+	concurrency chan struct{}
+	sessionSeq  uint64
 }
 
-func NewServer(addr, domain string, maxBytes int64, relaySvc *relay.Service) *Server {
-	return &Server{addr: addr, domain: domain, maxBytes: maxBytes, relaySvc: relaySvc}
+func NewServer(addr, domain string, maxBytes int64, maxConcurrentSessions int, relaySvc *relay.Service) *Server {
+	return &Server{
+		addr:        addr,
+		domain:      domain,
+		maxBytes:    maxBytes,
+		relaySvc:    relaySvc,
+		concurrency: make(chan struct{}, maxConcurrentSessions),
+	}
 }
 
 func (s *Server) ListenAndServe(ctx context.Context) error {
@@ -55,20 +65,26 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 			return fmt.Errorf("accept: %w", err)
 		}
 
+		s.concurrency <- struct{}{}
+		sessionID := atomic.AddUint64(&s.sessionSeq, 1)
 		wg.Add(1)
-		go func(c net.Conn) {
+		go func(c net.Conn, id uint64) {
 			defer wg.Done()
+			defer func() { <-s.concurrency }()
 			defer c.Close()
-			s.handleConn(ctx, c)
-		}(conn)
+			s.handleConn(ctx, c, id)
+		}(conn, sessionID)
 	}
 }
 
-func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
+func (s *Server) handleConn(ctx context.Context, conn net.Conn, sessionID uint64) {
 	r := bufio.NewReader(conn)
 	w := bufio.NewWriter(conn)
+	sessionCtx := trace.WithRequestID(ctx, fmt.Sprintf("smtp-%d", sessionID))
+	log.Printf("%ssmtp session opened remote=%s", trace.Prefix(sessionCtx), conn.RemoteAddr())
+	defer log.Printf("%ssmtp session closed remote=%s", trace.Prefix(sessionCtx), conn.RemoteAddr())
 
-	writeLine(w, "220 smtp-to-max-relay ESMTP")
+	writeLine(conn, w, "220 smtp-to-max-relay ESMTP")
 
 	var rcpts []string
 	authenticated := false
@@ -80,7 +96,7 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 		line, err := r.ReadString('\n')
 		if err != nil {
 			if err != io.EOF {
-				writeLine(w, "421 read error")
+				writeLine(conn, w, "421 read error")
 			}
 			return
 		}
@@ -89,86 +105,87 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 
 		switch {
 		case strings.HasPrefix(ucmd, "EHLO"):
-			writeLine(w, "250-Hello")
-			writeLine(w, "250-AUTH PLAIN")
-			writeLine(w, fmt.Sprintf("250 SIZE %d", s.maxBytes))
+			writeLine(conn, w, "250-Hello")
+			writeLine(conn, w, "250-AUTH PLAIN")
+			writeLine(conn, w, fmt.Sprintf("250 SIZE %d", s.maxBytes))
 
 		case strings.HasPrefix(ucmd, "HELO"):
-			writeLine(w, "250 Hello")
+			writeLine(conn, w, "250 Hello")
 
 		case strings.HasPrefix(ucmd, "AUTH PLAIN"):
 			// relay mode: accept any credentials
 			authenticated = true
-			writeLine(w, "235 2.7.0 Authentication successful")
+			writeLine(conn, w, "235 2.7.0 Authentication successful")
 
 		case strings.HasPrefix(ucmd, "MAIL FROM:"):
 			// auth is optional in relay mode; accept both authenticated and anonymous flows
 			_ = authenticated
 			rcpts = rcpts[:0]
-			writeLine(w, "250 OK")
+			writeLine(conn, w, "250 OK")
 
 		case strings.HasPrefix(ucmd, "RCPT TO:"):
 			addr := extractSMTPPath(cmd[len("RCPT TO:"):])
 			if addr == "" {
-				writeLine(w, "501 bad recipient")
+				writeLine(conn, w, "501 bad recipient")
 				continue
 			}
 			if !isAllowedRecipient(addr, s.domain) {
-				writeLine(w, "550 recipient domain is not allowed")
+				writeLine(conn, w, "550 recipient domain is not allowed")
 				continue
 			}
 			if s.relaySvc != nil && s.relaySvc.Recipients != nil {
 				if _, err := s.relaySvc.Recipients.Parse(addr); err != nil {
-					writeLine(w, "550 recipient is invalid")
+					writeLine(conn, w, "550 recipient is invalid")
 					continue
 				}
 			}
 			rcpts = append(rcpts, addr)
-			writeLine(w, "250 OK")
+			writeLine(conn, w, "250 OK")
 
 		case ucmd == "DATA":
 			if len(rcpts) == 0 {
-				writeLine(w, "503 need RCPT TO first")
+				writeLine(conn, w, "503 need RCPT TO first")
 				continue
 			}
-			writeLine(w, "354 End data with <CR><LF>.<CR><LF>")
+			writeLine(conn, w, "354 End data with <CR><LF>.<CR><LF>")
 			raw, err := readData(r, s.maxBytes)
 			if err != nil {
-				writeLine(w, "552 message exceeds fixed maximum message size")
+				writeLine(conn, w, "552 message exceeds fixed maximum message size")
 				continue
 			}
 			failed := false
 			for _, rcpt := range rcpts {
-				if err := s.relaySvc.Relay(ctx, rcpt, raw); err != nil {
-					log.Printf("relay error for rcpt=%s: %v", rcpt, err)
+				if err := s.relaySvc.Relay(sessionCtx, rcpt, raw); err != nil {
+					log.Printf("%srelay error for rcpt=%s: %v", trace.Prefix(sessionCtx), rcpt, err)
 					failed = true
 					break
 				}
 			}
 			if failed {
-				writeLine(w, "451 relay failure")
+				writeLine(conn, w, "451 relay failure")
 				continue
 			}
-			writeLine(w, "250 OK")
+			writeLine(conn, w, "250 OK")
 
 		case ucmd == "RSET":
 			rcpts = rcpts[:0]
-			writeLine(w, "250 OK")
+			writeLine(conn, w, "250 OK")
 
 		case ucmd == "NOOP":
-			writeLine(w, "250 OK")
+			writeLine(conn, w, "250 OK")
 
 		case ucmd == "QUIT":
-			writeLine(w, "221 Bye")
+			writeLine(conn, w, "221 Bye")
 			return
 
 		default:
-			writeLine(w, "502 command not implemented")
+			writeLine(conn, w, "502 command not implemented")
 		}
 	}
 }
 
-func writeLine(w *bufio.Writer, line string) {
+func writeLine(conn net.Conn, w *bufio.Writer, line string) {
+	_ = conn.SetWriteDeadline(time.Now().Add(15 * time.Second))
 	_, _ = w.WriteString(line + "\r\n")
 	_ = w.Flush()
 }
