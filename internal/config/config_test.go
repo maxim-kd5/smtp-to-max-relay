@@ -19,6 +19,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.SMTPMaxMessageBytes != 15*1024*1024 {
 		t.Fatalf("unexpected max message bytes: %d", cfg.SMTPMaxMessageBytes)
 	}
+	if cfg.SMTPMaxSessions != 200 {
+		t.Fatalf("unexpected max sessions: %d", cfg.SMTPMaxSessions)
+	}
 	if cfg.MaxSenderMode != "stub" {
 		t.Fatalf("unexpected sender mode: %q", cfg.MaxSenderMode)
 	}
@@ -65,12 +68,23 @@ func TestLoadRejectsInvalidAdminChatID(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidMaxConcurrentSessions(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("SMTP_MAX_CONCURRENT_SESSIONS", "0")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "SMTP_MAX_CONCURRENT_SESSIONS must be positive") {
+		t.Fatalf("expected max concurrent sessions validation error, got %v", err)
+	}
+}
+
 func clearConfigEnv(t *testing.T) {
 	t.Helper()
 
 	for _, key := range []string{
 		"SMTP_LISTEN_ADDR",
 		"SMTP_MAX_MESSAGE_BYTES",
+		"SMTP_MAX_CONCURRENT_SESSIONS",
 		"SMTP_ALLOWED_RCPT_DOMAIN",
 		"ALIAS_FILE_PATH",
 		"ADMIN_CHAT_ID",
