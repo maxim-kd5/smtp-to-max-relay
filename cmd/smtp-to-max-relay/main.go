@@ -69,6 +69,7 @@ func main() {
 
 	m := metrics.NewCollector()
 	recipients := recipient.NewParser(cfg.SMTPAllowedDomain, aliases)
+	var dlqAdmin max.DLQAdmin
 
 	relaySvc := &relay.Service{
 		Recipients:     recipients,
@@ -103,6 +104,15 @@ func main() {
 			AttemptTimeout: cfg.MaxSendTimeout,
 		}
 		go dlqWorker.Run(ctx)
+
+		dlqAdmin = &dlq.Admin{
+			Store:      dlqStore,
+			Relay:      relaySvc.Relay,
+			WithReplay: relay.WithDLQBypass,
+			MaxRetries: cfg.DLQMaxRetries,
+			BaseDelay:  cfg.DLQBaseDelay,
+			MaxDelay:   cfg.DLQMaxDelay,
+		}
 	}
 
 	server := smtpsrv.NewServer(cfg.SMTPListenAddr, cfg.SMTPAllowedDomain, cfg.SMTPMaxMessageBytes, cfg.SMTPMaxSessions, relaySvc)
@@ -118,6 +128,7 @@ func main() {
 			cfg.AliasFilePath,
 			recipients,
 			m,
+			dlqAdmin,
 			cfg.AdminChatID,
 		)
 	}

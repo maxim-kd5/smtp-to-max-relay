@@ -174,7 +174,10 @@ func (f *fakeDLQ) MarkDone(_ string) error                        { return nil }
 func (f *fakeDLQ) MarkRetry(_ string, _ time.Time, _ error, _ int) error {
 	return nil
 }
-func (f *fakeDLQ) Stats() dlq.Stats { return dlq.Stats{} }
+func (f *fakeDLQ) Stats() dlq.Stats                                   { return dlq.Stats{} }
+func (f *fakeDLQ) OldestPendingAge(_ time.Time) (time.Duration, bool) { return 0, false }
+func (f *fakeDLQ) Get(_ string) (dlq.Item, bool)                      { return dlq.Item{}, false }
+func (f *fakeDLQ) List(_ int) []dlq.Item                              { return nil }
 
 type alwaysFailSender struct{}
 

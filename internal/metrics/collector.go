@@ -22,6 +22,7 @@ type Collector struct {
 	dlqPending      atomic.Uint64
 	dlqFailed       atomic.Uint64
 	dlqDone         atomic.Uint64
+	dlqOldestSec    atomic.Uint64
 
 	mu                sync.Mutex
 	deliveryByAddress map[deliveryKey]uint64
@@ -66,10 +67,11 @@ func (c *Collector) IncFilesSent()       { c.filesSent.Add(1) }
 func (c *Collector) IncDLQEnqueued()     { c.dlqEnqueued.Add(1) }
 func (c *Collector) IncDLQReplayed()     { c.dlqReplayed.Add(1) }
 func (c *Collector) IncDLQReplayFailed() { c.dlqReplayFailed.Add(1) }
-func (c *Collector) SetDLQBacklog(pending, failed, done uint64) {
+func (c *Collector) SetDLQBacklog(pending, failed, done, oldestPendingSeconds uint64) {
 	c.dlqPending.Store(pending)
 	c.dlqFailed.Store(failed)
 	c.dlqDone.Store(done)
+	c.dlqOldestSec.Store(oldestPendingSeconds)
 }
 
 func (c *Collector) ObserveDelivery(address string, delivered bool, maxRecipientID, recipientName string) {
@@ -133,6 +135,7 @@ func (c *Collector) Handler() http.Handler {
 		_, _ = fmt.Fprintf(w, "smtp_relay_dlq_pending %d\n", c.dlqPending.Load())
 		_, _ = fmt.Fprintf(w, "smtp_relay_dlq_failed %d\n", c.dlqFailed.Load())
 		_, _ = fmt.Fprintf(w, "smtp_relay_dlq_done %d\n", c.dlqDone.Load())
+		_, _ = fmt.Fprintf(w, "smtp_relay_dlq_oldest_pending_seconds %d\n", c.dlqOldestSec.Load())
 		for _, line := range c.deliveryMetricLines() {
 			_, _ = fmt.Fprintln(w, line)
 		}

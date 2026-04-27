@@ -41,6 +41,9 @@ type Store interface {
 	MarkDone(id string) error
 	MarkRetry(id string, nextRetryAt time.Time, lastErr error, maxRetries int) error
 	Stats() Stats
+	OldestPendingAge(now time.Time) (time.Duration, bool)
+	Get(id string) (Item, bool)
+	List(limit int) []Item
 }
 
 type Stats struct {
@@ -190,6 +193,57 @@ func (s *FileStore) Stats() Stats {
 		}
 	}
 	return st
+}
+
+func (s *FileStore) OldestPendingAge(now time.Time) (time.Duration, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var oldest time.Time
+	for _, item := range s.items {
+		if item.Status != StatusPending && item.Status != StatusProcessing {
+			continue
+		}
+		if oldest.IsZero() || item.CreatedAt.Before(oldest) {
+			oldest = item.CreatedAt
+		}
+	}
+	if oldest.IsZero() {
+		return 0, false
+	}
+	if now.Before(oldest) {
+		return 0, true
+	}
+	return now.Sub(oldest), true
+}
+
+func (s *FileStore) Get(id string) (Item, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.items[id]
+	return item, ok
+}
+
+func (s *FileStore) List(limit int) []Item {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if limit <= 0 {
+		limit = 20
+	}
+	items := make([]Item, 0, len(s.items))
+	for _, item := range s.items {
+		items = append(items, item)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	out := make([]Item, len(items))
+	copy(out, items)
+	return out
 }
 
 func (s *FileStore) load() error {

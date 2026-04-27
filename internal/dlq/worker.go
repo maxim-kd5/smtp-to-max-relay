@@ -13,7 +13,7 @@ type RelayFunc func(ctx context.Context, rcpt string, rawMessage []byte) error
 type Metrics interface {
 	IncDLQReplayed()
 	IncDLQReplayFailed()
-	SetDLQBacklog(pending, failed, done uint64)
+	SetDLQBacklog(pending, failed, done, oldestPendingSeconds uint64)
 }
 
 type Worker struct {
@@ -99,7 +99,11 @@ func (w *Worker) updateBacklogMetrics() {
 		return
 	}
 	st := w.Store.Stats()
-	w.Metrics.SetDLQBacklog(st.Pending, st.Failed, st.Done)
+	oldest := uint64(0)
+	if age, ok := w.Store.OldestPendingAge(time.Now().UTC()); ok {
+		oldest = uint64(age.Seconds())
+	}
+	w.Metrics.SetDLQBacklog(st.Pending, st.Failed, st.Done, oldest)
 }
 
 func (w *Worker) nextDelay(attempt int) time.Duration {

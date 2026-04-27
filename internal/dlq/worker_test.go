@@ -104,9 +104,12 @@ func TestWorkerUpdatesBacklogMetrics(t *testing.T) {
 	}
 	w.runOnce(context.Background())
 
-	pending, failed, done := m.snapshot()
+	pending, failed, done, oldest := m.snapshot()
 	if pending != 0 || failed != 0 || done != 1 {
 		t.Fatalf("unexpected dlq backlog metrics pending=%d failed=%d done=%d", pending, failed, done)
+	}
+	if oldest != 0 {
+		t.Fatalf("expected no oldest pending age after successful replay, got %d", oldest)
 	}
 }
 
@@ -135,20 +138,22 @@ type captureDLQMetrics struct {
 	pending uint64
 	failed  uint64
 	done    uint64
+	oldest  uint64
 }
 
 func (c *captureDLQMetrics) IncDLQReplayed()     {}
 func (c *captureDLQMetrics) IncDLQReplayFailed() {}
-func (c *captureDLQMetrics) SetDLQBacklog(pending, failed, done uint64) {
+func (c *captureDLQMetrics) SetDLQBacklog(pending, failed, done, oldest uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.pending = pending
 	c.failed = failed
 	c.done = done
+	c.oldest = oldest
 }
 
-func (c *captureDLQMetrics) snapshot() (uint64, uint64, uint64) {
+func (c *captureDLQMetrics) snapshot() (uint64, uint64, uint64, uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.pending, c.failed, c.done
+	return c.pending, c.failed, c.done, c.oldest
 }

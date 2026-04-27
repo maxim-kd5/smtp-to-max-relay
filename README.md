@@ -63,6 +63,9 @@ When `MAX_SENDER_MODE=botapi`, the service also receives bot updates and replies
   - `/unalias <name>` — remove alias
   - `/stats7d` — отправить статистику relay за последние 7 дней
   - `/stats30d` — отправить статистику relay за последние 30 дней
+  - `/dlq` — показать текущий backlog DLQ
+  - `/dlq_list <limit>` — показать последние элементы DLQ
+  - `/replay <id>` — вручную выполнить replay конкретного элемента DLQ
 
 Пример:
 - `/alias admin 260920412` сохранится как `admin -> chatid260920412`
