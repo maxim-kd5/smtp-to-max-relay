@@ -10,20 +10,30 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"smtp-to-max-relay/internal/relay"
+	"smtp-to-max-relay/internal/trace"
 )
 
 type Server struct {
-	addr     string
-	domain   string
-	maxBytes int64
-	relaySvc *relay.Service
+	addr        string
+	domain      string
+	maxBytes    int64
+	relaySvc    *relay.Service
+	concurrency chan struct{}
+	sessionSeq  uint64
 }
 
-func NewServer(addr, domain string, maxBytes int64, relaySvc *relay.Service) *Server {
-	return &Server{addr: addr, domain: domain, maxBytes: maxBytes, relaySvc: relaySvc}
+func NewServer(addr, domain string, maxBytes int64, maxConcurrentSessions int, relaySvc *relay.Service) *Server {
+	return &Server{
+		addr:        addr,
+		domain:      domain,
+		maxBytes:    maxBytes,
+		relaySvc:    relaySvc,
+		concurrency: make(chan struct{}, maxConcurrentSessions),
+	}
 }
 
 func (s *Server) ListenAndServe(ctx context.Context) error {
@@ -55,18 +65,24 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 			return fmt.Errorf("accept: %w", err)
 		}
 
+		s.concurrency <- struct{}{}
+		sessionID := atomic.AddUint64(&s.sessionSeq, 1)
 		wg.Add(1)
-		go func(c net.Conn) {
+		go func(c net.Conn, id uint64) {
 			defer wg.Done()
+			defer func() { <-s.concurrency }()
 			defer c.Close()
-			s.handleConn(ctx, c)
-		}(conn)
+			s.handleConn(ctx, c, id)
+		}(conn, sessionID)
 	}
 }
 
-func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
+func (s *Server) handleConn(ctx context.Context, conn net.Conn, sessionID uint64) {
 	r := bufio.NewReader(conn)
 	w := bufio.NewWriter(conn)
+	sessionCtx := trace.WithRequestID(ctx, fmt.Sprintf("smtp-%d", sessionID))
+	log.Printf("%ssmtp session opened remote=%s", trace.Prefix(sessionCtx), conn.RemoteAddr())
+	defer log.Printf("%ssmtp session closed remote=%s", trace.Prefix(sessionCtx), conn.RemoteAddr())
 
 	writeLine(conn, w, "220 smtp-to-max-relay ESMTP")
 
@@ -139,8 +155,8 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 			}
 			failed := false
 			for _, rcpt := range rcpts {
-				if err := s.relaySvc.Relay(ctx, rcpt, raw); err != nil {
-					log.Printf("relay error for rcpt=%s: %v", rcpt, err)
+				if err := s.relaySvc.Relay(sessionCtx, rcpt, raw); err != nil {
+					log.Printf("%srelay error for rcpt=%s: %v", trace.Prefix(sessionCtx), rcpt, err)
 					failed = true
 					break
 				}

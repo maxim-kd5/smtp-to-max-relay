@@ -45,6 +45,14 @@ func main() {
 		sender = botSender
 		log.Printf("using MAX sender mode=botapi")
 
+		notifyCtx, cancel := context.WithTimeout(context.Background(), cfg.MaxSendTimeout)
+		if err := max.SendStartupNotification(notifyCtx, sender, cfg.AdminChatID); err != nil {
+			log.Printf("failed to send startup notification to admin chat_id=%d: %v", cfg.AdminChatID, err)
+		} else if cfg.AdminChatID != 0 {
+			log.Printf("startup notification sent to admin chat_id=%d", cfg.AdminChatID)
+		}
+		cancel()
+
 		infoCtx, cancel := context.WithTimeout(context.Background(), cfg.MaxSendTimeout)
 		botInfo, err := botSender.API().Bots.GetBot(infoCtx)
 		cancel()
@@ -72,20 +80,18 @@ func main() {
 		Metrics:        m,
 	}
 
-	server := smtpsrv.NewServer(cfg.SMTPListenAddr, cfg.SMTPAllowedDomain, cfg.SMTPMaxMessageBytes, relaySvc)
+	server := smtpsrv.NewServer(
+		cfg.SMTPListenAddr,
+		cfg.SMTPAllowedDomain,
+		cfg.SMTPMaxMessageBytes,
+		cfg.SMTPMaxSessions,
+		relaySvc,
+	)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	if botSender != nil {
-		notifyCtx, cancel := context.WithTimeout(ctx, cfg.MaxSendTimeout)
-		if err := max.SendStartupNotification(notifyCtx, sender, cfg.AdminChatID); err != nil {
-			log.Printf("failed to send startup notification to admin chat_id=%d: %v", cfg.AdminChatID, err)
-		} else if cfg.AdminChatID != 0 {
-			log.Printf("startup notification sent to admin chat_id=%d", cfg.AdminChatID)
-		}
-		cancel()
-
 		go max.RunBotLoopWithUsername(
 			ctx,
 			botSender.API(),

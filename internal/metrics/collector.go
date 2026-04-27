@@ -20,6 +20,7 @@ type Collector struct {
 	mu                sync.Mutex
 	deliveryByAddress map[deliveryKey]uint64
 	deliveryEvents    []deliveryEvent
+	latencies         map[string]*latencyHistogram
 }
 
 type deliveryKey struct {
@@ -36,9 +37,18 @@ type deliveryEvent struct {
 
 const maxStoredDeliveryEvents = 50000
 
+var latencyBucketUpperBounds = []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10}
+
+type latencyHistogram struct {
+	buckets []uint64
+	sum     float64
+	count   uint64
+}
+
 func NewCollector() *Collector {
 	return &Collector{
 		deliveryByAddress: map[deliveryKey]uint64{},
+		latencies:         map[string]*latencyHistogram{},
 	}
 }
 
@@ -64,6 +74,37 @@ func (c *Collector) ObserveDelivery(address string, delivered bool, maxRecipient
 	}
 }
 
+func (c *Collector) ObserveLatency(stage string, d time.Duration) {
+	stage = strings.TrimSpace(strings.ToLower(stage))
+	if stage == "" {
+		return
+	}
+
+	seconds := d.Seconds()
+	if seconds < 0 {
+		seconds = 0
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	h, ok := c.latencies[stage]
+	if !ok {
+		h = &latencyHistogram{
+			buckets: make([]uint64, len(latencyBucketUpperBounds)),
+		}
+		c.latencies[stage] = h
+	}
+
+	for i, ub := range latencyBucketUpperBounds {
+		if seconds <= ub {
+			h.buckets[i]++
+		}
+	}
+	h.count++
+	h.sum += seconds
+}
+
 func (c *Collector) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
@@ -73,6 +114,9 @@ func (c *Collector) Handler() http.Handler {
 		_, _ = fmt.Fprintf(w, "smtp_relay_text_sent_total %d\n", c.textSent.Load())
 		_, _ = fmt.Fprintf(w, "smtp_relay_files_sent_total %d\n", c.filesSent.Load())
 		for _, line := range c.deliveryMetricLines() {
+			_, _ = fmt.Fprintln(w, line)
+		}
+		for _, line := range c.latencyMetricLines() {
 			_, _ = fmt.Fprintln(w, line)
 		}
 	})
@@ -113,6 +157,51 @@ func (c *Collector) deliveryMetricLines() []string {
 	return lines
 }
 
+func (c *Collector) latencyMetricLines() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	stages := make([]string, 0, len(c.latencies))
+	for stage := range c.latencies {
+		stages = append(stages, stage)
+	}
+	sort.Strings(stages)
+
+	lines := make([]string, 0, len(stages)*(len(latencyBucketUpperBounds)+2))
+	for _, stage := range stages {
+		h := c.latencies[stage]
+		for i, ub := range latencyBucketUpperBounds {
+			lines = append(lines, fmt.Sprintf(
+				`smtp_relay_latency_seconds_bucket{stage=%q,le=%q} %d`,
+				escapeLabel(stage),
+				formatPromFloat(ub),
+				h.buckets[i],
+			))
+		}
+		lines = append(lines, fmt.Sprintf(
+			`smtp_relay_latency_seconds_bucket{stage=%q,le="+Inf"} %d`,
+			escapeLabel(stage),
+			h.count,
+		))
+		lines = append(lines, fmt.Sprintf(
+			`smtp_relay_latency_seconds_sum{stage=%q} %s`,
+			escapeLabel(stage),
+			formatPromFloat(h.sum),
+		))
+		lines = append(lines, fmt.Sprintf(
+			`smtp_relay_latency_seconds_count{stage=%q} %d`,
+			escapeLabel(stage),
+			h.count,
+		))
+	}
+
+	return lines
+}
+
+func formatPromFloat(v float64) string {
+	return fmt.Sprintf("%.6f", v)
+}
+
 func boolLabel(v bool) string {
 	if v {
 		return "true"
@@ -139,6 +228,7 @@ func (c *Collector) BuildLastDaysReport(days int) string {
 	failed := 0
 	byAddress := map[string]int{}
 	byRecipient := map[string]int{}
+	recipientAgg := map[string]recipientStats{}
 
 	for _, ev := range c.deliveryEvents {
 		if ev.At.Before(since) {
@@ -151,17 +241,17 @@ func (c *Collector) BuildLastDaysReport(days int) string {
 			failed++
 		}
 		byAddress[ev.Key.Address]++
+
+		recipientKey := formatRecipientLabel(ev.Key.RecipientName, ev.Key.MaxRecipient)
+		agg := recipientAgg[recipientKey]
+		agg.Total++
 		if ev.Key.Delivered {
-			name := ev.Key.RecipientName
-			if strings.TrimSpace(name) == "" {
-				name = "unknown"
-			}
-			id := strings.TrimSpace(ev.Key.MaxRecipient)
-			if id == "" {
-				id = "unknown"
-			}
-			byRecipient[fmt.Sprintf("%s (id=%s)", name, id)]++
+			agg.Delivered++
+			byRecipient[recipientKey]++
+		} else {
+			agg.Failed++
 		}
+		recipientAgg[recipientKey] = agg
 	}
 
 	lines := []string{
@@ -183,7 +273,60 @@ func (c *Collector) BuildLastDaysReport(days int) string {
 			lines = append(lines, fmt.Sprintf("- %s: %d", kv.Key, kv.Value))
 		}
 	}
+	if len(recipientAgg) > 0 {
+		lines = append(lines, "Агрегировано по получателям MAX:")
+		lines = append(lines, fmt.Sprintf("- Уникальных получателей: %d", len(recipientAgg)))
+		for _, kv := range topRecipientStats(recipientAgg, 5) {
+			lines = append(lines, fmt.Sprintf(
+				"- %s: всего %d, доставлено %d, ошибок %d",
+				kv.Key,
+				kv.Value.Total,
+				kv.Value.Delivered,
+				kv.Value.Failed,
+			))
+		}
+	}
 	return strings.Join(lines, "\n")
+}
+
+type recipientStats struct {
+	Total     int
+	Delivered int
+	Failed    int
+}
+
+type recipientStatKV struct {
+	Key   string
+	Value recipientStats
+}
+
+func topRecipientStats(m map[string]recipientStats, k int) []recipientStatKV {
+	items := make([]recipientStatKV, 0, len(m))
+	for key, value := range m {
+		items = append(items, recipientStatKV{Key: key, Value: value})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Value.Total != items[j].Value.Total {
+			return items[i].Value.Total > items[j].Value.Total
+		}
+		return items[i].Key < items[j].Key
+	})
+	if k > 0 && len(items) > k {
+		items = items[:k]
+	}
+	return items
+}
+
+func formatRecipientLabel(name, id string) string {
+	cleanName := strings.TrimSpace(name)
+	if cleanName == "" {
+		cleanName = "unknown"
+	}
+	cleanID := strings.TrimSpace(id)
+	if cleanID == "" {
+		cleanID = "unknown"
+	}
+	return fmt.Sprintf("%s (id=%s)", cleanName, cleanID)
 }
 
 type kv struct {

@@ -146,7 +146,7 @@ func startTestServer(t *testing.T) (string, func(), *captureSender) {
 		Sender:     sender,
 	}
 
-	srv := NewServer(addr, "relay.local", 1024*1024, svc)
+	srv := NewServer(addr, "relay.local", 1024*1024, 32, svc)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	errCh := make(chan error, 1)
