@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"smtp-to-max-relay/internal/dlq"
 	"smtp-to-max-relay/internal/email"
 	"smtp-to-max-relay/internal/max"
 	"smtp-to-max-relay/internal/metrics"
@@ -24,6 +25,18 @@ type Service struct {
 	MaxSendRetries int
 	RetryBaseDelay time.Duration
 	Metrics        *metrics.Collector
+	DLQ            dlq.Store
+}
+
+type replayCtxKey struct{}
+
+func WithDLQBypass(ctx context.Context) context.Context {
+	return context.WithValue(ctx, replayCtxKey{}, true)
+}
+
+func shouldBypassDLQ(ctx context.Context) bool {
+	v, _ := ctx.Value(replayCtxKey{}).(bool)
+	return v
 }
 
 func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) error {
@@ -83,6 +96,14 @@ func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) err
 				s.Metrics.IncFailed()
 				s.Metrics.ObserveDelivery(rcpt, false, pr.ChatID, pr.SourceLocal)
 			}
+			if s.DLQ != nil && !shouldBypassDLQ(ctx) {
+				if _, qerr := s.DLQ.Enqueue(rcpt, rawMessage, err); qerr != nil {
+					return fmt.Errorf("send text: %w (dlq enqueue: %v)", err, qerr)
+				}
+				if s.Metrics != nil {
+					s.Metrics.IncDLQEnqueued()
+				}
+			}
 			return fmt.Errorf("send text: %w", err)
 		}
 	}
@@ -105,6 +126,14 @@ func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) err
 			if s.Metrics != nil {
 				s.Metrics.IncFailed()
 				s.Metrics.ObserveDelivery(rcpt, false, pr.ChatID, pr.SourceLocal)
+			}
+			if s.DLQ != nil && !shouldBypassDLQ(ctx) {
+				if _, qerr := s.DLQ.Enqueue(rcpt, rawMessage, err); qerr != nil {
+					return fmt.Errorf("send file %s: %w (dlq enqueue: %v)", a.Filename, err, qerr)
+				}
+				if s.Metrics != nil {
+					s.Metrics.IncDLQEnqueued()
+				}
 			}
 			return fmt.Errorf("send file %s: %w", a.Filename, err)
 		}

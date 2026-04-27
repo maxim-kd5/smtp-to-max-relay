@@ -11,11 +11,14 @@ import (
 )
 
 type Collector struct {
-	received  atomic.Uint64
-	relayed   atomic.Uint64
-	failed    atomic.Uint64
-	textSent  atomic.Uint64
-	filesSent atomic.Uint64
+	received        atomic.Uint64
+	relayed         atomic.Uint64
+	failed          atomic.Uint64
+	textSent        atomic.Uint64
+	filesSent       atomic.Uint64
+	dlqEnqueued     atomic.Uint64
+	dlqReplayed     atomic.Uint64
+	dlqReplayFailed atomic.Uint64
 
 	mu                sync.Mutex
 	deliveryByAddress map[deliveryKey]uint64
@@ -52,11 +55,14 @@ func NewCollector() *Collector {
 	}
 }
 
-func (c *Collector) IncReceived()  { c.received.Add(1) }
-func (c *Collector) IncRelayed()   { c.relayed.Add(1) }
-func (c *Collector) IncFailed()    { c.failed.Add(1) }
-func (c *Collector) IncTextSent()  { c.textSent.Add(1) }
-func (c *Collector) IncFilesSent() { c.filesSent.Add(1) }
+func (c *Collector) IncReceived()        { c.received.Add(1) }
+func (c *Collector) IncRelayed()         { c.relayed.Add(1) }
+func (c *Collector) IncFailed()          { c.failed.Add(1) }
+func (c *Collector) IncTextSent()        { c.textSent.Add(1) }
+func (c *Collector) IncFilesSent()       { c.filesSent.Add(1) }
+func (c *Collector) IncDLQEnqueued()     { c.dlqEnqueued.Add(1) }
+func (c *Collector) IncDLQReplayed()     { c.dlqReplayed.Add(1) }
+func (c *Collector) IncDLQReplayFailed() { c.dlqReplayFailed.Add(1) }
 
 func (c *Collector) ObserveDelivery(address string, delivered bool, maxRecipientID, recipientName string) {
 	key := deliveryKey{
@@ -113,6 +119,9 @@ func (c *Collector) Handler() http.Handler {
 		_, _ = fmt.Fprintf(w, "smtp_relay_failed_total %d\n", c.failed.Load())
 		_, _ = fmt.Fprintf(w, "smtp_relay_text_sent_total %d\n", c.textSent.Load())
 		_, _ = fmt.Fprintf(w, "smtp_relay_files_sent_total %d\n", c.filesSent.Load())
+		_, _ = fmt.Fprintf(w, "smtp_relay_dlq_enqueued_total %d\n", c.dlqEnqueued.Load())
+		_, _ = fmt.Fprintf(w, "smtp_relay_dlq_replayed_total %d\n", c.dlqReplayed.Load())
+		_, _ = fmt.Fprintf(w, "smtp_relay_dlq_replay_failed_total %d\n", c.dlqReplayFailed.Load())
 		for _, line := range c.deliveryMetricLines() {
 			_, _ = fmt.Fprintln(w, line)
 		}
