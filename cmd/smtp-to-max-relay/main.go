@@ -110,19 +110,19 @@ func main() {
 			Store: dlqStore,
 			Relay: relaySvc.Relay,
 			DryRun: func(ctx context.Context, rcpt string, raw []byte) (string, error) {
-				pr, err := relaySvc.Recipients.Parse(rcpt)
+				parsedRecipient, err := relaySvc.Recipients.Parse(rcpt)
 				if err != nil {
 					return "", err
 				}
-				em, err := relaySvc.Email.Parse(raw)
+				parsedEmail, err := relaySvc.Email.Parse(raw)
 				if err != nil {
 					return "", err
 				}
 				return fmt.Sprintf(
 					"маршрут валиден: chat_id=%s, silent=%t, attachments=%d",
-					pr.ChatID,
-					pr.Silent,
-					len(em.Attachments),
+					parsedRecipient.ChatID,
+					parsedRecipient.Silent,
+					len(parsedEmail.Attachments),
 				), nil
 			},
 			WithReplay: relay.WithDLQBypass,
