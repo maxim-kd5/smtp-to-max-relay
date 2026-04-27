@@ -1,0 +1,8 @@
+{
+  "roles": {
+    "super_admin": {
+      "users": [],
+      "chats": []
+    }
+  }
+}

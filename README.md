@@ -16,7 +16,9 @@ Environment variables:
 - `SMTP_MAX_CONCURRENT_SESSIONS` (default `200`)
 - `SMTP_ALLOWED_RCPT_DOMAIN` (default `relay.local`)
 - `ALIAS_FILE_PATH` (default `./config/aliases.json`)
-- `ADMIN_CHAT_ID` (optional; MAX chat ID пользователя с админским доступом; в этом чате доступны админ-команды)
+- `ACL_FILE_PATH` (default `./config/acl.json`)
+- `ADMIN_CHAT_IDS` (optional; comma-separated bootstrap super-admin chat IDs, e.g. `100,-200`)
+- `ADMIN_USER_IDS` (optional; comma-separated bootstrap super-admin user IDs)
 - `MAX_SENDER_MODE` (`stub` by default, options: `stub`, `botapi`)
 - `MAX_API_BASE_URL` (optional; when empty, the official MAX Bot API base URL is used)
 - `MAX_BOT_TOKEN` (required when `MAX_SENDER_MODE` is not `stub`)
@@ -58,14 +60,18 @@ When `MAX_SENDER_MODE=botapi`, the service also receives bot updates and replies
 
 - `/start` with the user's personal relay address and MAX user ID
 - `/hello`, `/help`, or bot mentions in chat with the relay address of the current chat
-- admin-only alias commands in chat configured by `ADMIN_CHAT_ID`:
+- ACL-protected admin commands (roles: `super_admin`, `alias_admin`, `dlq_admin`, `stats_viewer`):
   - `/alias <name> <chatid...|number>` — add/update alias (число автоматически преобразуется в `chatid<number>`)
   - `/unalias <name>` — remove alias
+  - `/aliases` — список алиасов
   - `/stats7d` — отправить статистику relay за последние 7 дней
   - `/stats30d` — отправить статистику relay за последние 30 дней
   - `/dlq` — показать текущий backlog DLQ
   - `/dlq_list <limit>` — показать последние элементы DLQ
   - `/replay <id>` — вручную выполнить replay конкретного элемента DLQ
+  - `/grant <role> <user|chat> <id>` — выдать роль (только `super_admin`)
+  - `/revoke <role> <user|chat> <id>` — отозвать роль (только `super_admin`)
+  - `/whoami` — показать роли текущего пользователя/чата (только `super_admin`)
 
 Пример:
 - `/alias admin 260920412` сохранится как `admin -> chatid260920412`

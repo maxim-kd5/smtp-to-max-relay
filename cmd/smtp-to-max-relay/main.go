@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"smtp-to-max-relay/internal/acl"
 	"smtp-to-max-relay/internal/config"
 	"smtp-to-max-relay/internal/dlq"
 	"smtp-to-max-relay/internal/email"
@@ -35,6 +36,11 @@ func main() {
 		botUsername string
 	)
 
+	aclStore, err := acl.Open(cfg.ACLFilePath, cfg.AdminUserIDs, cfg.AdminChatIDs)
+	if err != nil {
+		log.Fatalf("acl init error: %v", err)
+	}
+
 	switch cfg.MaxSenderMode {
 	case "botapi":
 		botSender, err = max.NewBotSender(cfg.MaxAPIBaseURL, cfg.MaxBotToken, cfg.MaxSendTimeout)
@@ -44,13 +50,15 @@ func main() {
 		sender = botSender
 		log.Printf("using MAX sender mode=botapi")
 
-		notifyCtx, cancel := context.WithTimeout(context.Background(), cfg.MaxSendTimeout)
-		if err := max.SendStartupNotification(notifyCtx, sender, cfg.AdminChatID); err != nil {
-			log.Printf("failed to send startup notification to admin chat_id=%d: %v", cfg.AdminChatID, err)
-		} else if cfg.AdminChatID != 0 {
-			log.Printf("startup notification sent to admin chat_id=%d", cfg.AdminChatID)
+		for _, adminChatID := range aclStore.SuperAdminChatIDs() {
+			notifyCtx, cancel := context.WithTimeout(context.Background(), cfg.MaxSendTimeout)
+			if err := max.SendStartupNotification(notifyCtx, sender, adminChatID); err != nil {
+				log.Printf("failed to send startup notification to admin chat_id=%d: %v", adminChatID, err)
+			} else {
+				log.Printf("startup notification sent to admin chat_id=%d", adminChatID)
+			}
+			cancel()
 		}
-		cancel()
 
 		infoCtx, cancel := context.WithTimeout(context.Background(), cfg.MaxSendTimeout)
 		botInfo, err := botSender.API().Bots.GetBot(infoCtx)
@@ -129,7 +137,7 @@ func main() {
 			recipients,
 			m,
 			dlqAdmin,
-			cfg.AdminChatID,
+			aclStore,
 		)
 	}
 

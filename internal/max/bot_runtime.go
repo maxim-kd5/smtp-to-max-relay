@@ -40,7 +40,6 @@ func SendStartupNotification(ctx context.Context, sender Sender, adminChatID int
 	if sender == nil || adminChatID == 0 {
 		return nil
 	}
-
 	text := fmt.Sprintf("✅ smtp-to-max-relay запущен. Версия бота: %s", version.BotVersion())
 	return sender.SendText(ctx, strconv.FormatInt(adminChatID, 10), text, true)
 }
@@ -56,7 +55,7 @@ func RunBotLoopWithUsername(
 	aliasAdmin AliasAdmin,
 	statsReporter StatsReporter,
 	dlqAdmin DLQAdmin,
-	aliasAdminChatID int64,
+	authorizer ACLAuthorizer,
 ) {
 	if api == nil || sender == nil {
 		return
@@ -86,19 +85,19 @@ func RunBotLoopWithUsername(
 			if !ok {
 				return
 			}
-			handleBotUpdate(ctx, sender, botUserID, botUsername, allowedDomain, aliasFilePath, aliasAdmin, statsReporter, dlqAdmin, aliasAdminChatID, upd)
+			handleBotUpdate(ctx, sender, botUserID, botUsername, allowedDomain, aliasFilePath, aliasAdmin, statsReporter, dlqAdmin, authorizer, upd)
 		}
 	}
 }
 
-func handleBotUpdate(ctx context.Context, sender Sender, botUserID int64, botUsername, allowedDomain, aliasFilePath string, aliasAdmin AliasAdmin, statsReporter StatsReporter, dlqAdmin DLQAdmin, aliasAdminChatID int64, upd schemes.UpdateInterface) {
+func handleBotUpdate(ctx context.Context, sender Sender, botUserID int64, botUsername, allowedDomain, aliasFilePath string, aliasAdmin AliasAdmin, statsReporter StatsReporter, dlqAdmin DLQAdmin, authorizer ACLAuthorizer, upd schemes.UpdateInterface) {
 	switch upd := upd.(type) {
 	case *schemes.MessageCreatedUpdate:
-		handleMessageCreatedUpdate(ctx, sender, botUserID, botUsername, allowedDomain, aliasFilePath, aliasAdmin, statsReporter, dlqAdmin, aliasAdminChatID, upd)
+		handleMessageCreatedUpdate(ctx, sender, botUserID, botUsername, allowedDomain, aliasFilePath, aliasAdmin, statsReporter, dlqAdmin, authorizer, upd)
 	}
 }
 
-func handleMessageCreatedUpdate(ctx context.Context, sender Sender, botUserID int64, botUsername, allowedDomain, aliasFilePath string, aliasAdmin AliasAdmin, statsReporter StatsReporter, dlqAdmin DLQAdmin, aliasAdminChatID int64, upd *schemes.MessageCreatedUpdate) {
+func handleMessageCreatedUpdate(ctx context.Context, sender Sender, botUserID int64, botUsername, allowedDomain, aliasFilePath string, aliasAdmin AliasAdmin, statsReporter StatsReporter, dlqAdmin DLQAdmin, authorizer ACLAuthorizer, upd *schemes.MessageCreatedUpdate) {
 	if upd == nil {
 		return
 	}
@@ -124,17 +123,7 @@ func handleMessageCreatedUpdate(ctx context.Context, sender Sender, botUserID in
 		allowedDomain,
 	)
 	if !ok {
-		reply, ok = maybeHandleAdminAliasCommandWithDLQ(
-			ctx,
-			upd.Message.Body.Text,
-			upd.Message.Sender,
-			chatID,
-			aliasFilePath,
-			aliasAdmin,
-			statsReporter,
-			dlqAdmin,
-			aliasAdminChatID,
-		)
+		reply, ok = maybeHandleAdminAliasCommandWithDLQ(ctx, upd.Message.Body.Text, upd.Message.Sender, chatID, aliasFilePath, aliasAdmin, statsReporter, dlqAdmin, authorizer)
 	}
 	if !ok {
 		return
@@ -148,29 +137,68 @@ func handleMessageCreatedUpdate(ctx context.Context, sender Sender, botUserID in
 	}
 }
 
-func maybeHandleAdminAliasCommand(text string, sender *schemes.User, chatID int64, aliasFilePath string, aliasAdmin AliasAdmin, statsReporter StatsReporter, adminChatID int64) (string, bool) {
-	return maybeHandleAdminAliasCommandWithDLQ(context.Background(), text, sender, chatID, aliasFilePath, aliasAdmin, statsReporter, nil, adminChatID)
+func maybeHandleAdminAliasCommand(text string, sender *schemes.User, chatID int64, aliasFilePath string, aliasAdmin AliasAdmin, statsReporter StatsReporter, authorizer ACLAuthorizer) (string, bool) {
+	return maybeHandleAdminAliasCommandWithDLQ(context.Background(), text, sender, chatID, aliasFilePath, aliasAdmin, statsReporter, nil, authorizer)
 }
 
-func maybeHandleAdminAliasCommandWithDLQ(ctx context.Context, text string, sender *schemes.User, chatID int64, aliasFilePath string, aliasAdmin AliasAdmin, statsReporter StatsReporter, dlqAdmin DLQAdmin, adminChatID int64) (string, bool) {
-	if adminChatID == 0 {
+func maybeHandleAdminAliasCommandWithDLQ(ctx context.Context, text string, sender *schemes.User, chatID int64, aliasFilePath string, aliasAdmin AliasAdmin, statsReporter StatsReporter, dlqAdmin DLQAdmin, authorizer ACLAuthorizer) (string, bool) {
+	if sender == nil || authorizer == nil {
 		return "", false
 	}
-	if sender == nil || chatID != adminChatID {
-		return "", false
-	}
-
 	parts := strings.Fields(strings.TrimSpace(text))
 	if len(parts) == 0 {
 		return "", false
 	}
+	userID := sender.UserId
+
 	switch strings.ToLower(parts[0]) {
+	case "/grant":
+		if !authorizer.IsSuperAdmin(userID, chatID) {
+			return "Недостаточно прав", true
+		}
+		if len(parts) != 4 {
+			return "Использование: /grant <role> <user|chat> <id>", true
+		}
+		id, err := strconv.ParseInt(parts[3], 10, 64)
+		if err != nil {
+			return "id должен быть целым числом", true
+		}
+		if err := authorizer.Grant(parts[1], parts[2], id); err != nil {
+			return fmt.Sprintf("Ошибка grant: %v", err), true
+		}
+		return "Права выданы", true
+	case "/revoke":
+		if !authorizer.IsSuperAdmin(userID, chatID) {
+			return "Недостаточно прав", true
+		}
+		if len(parts) != 4 {
+			return "Использование: /revoke <role> <user|chat> <id>", true
+		}
+		id, err := strconv.ParseInt(parts[3], 10, 64)
+		if err != nil {
+			return "id должен быть целым числом", true
+		}
+		if err := authorizer.Revoke(parts[1], parts[2], id); err != nil {
+			return fmt.Sprintf("Ошибка revoke: %v", err), true
+		}
+		return "Права отозваны", true
+	case "/whoami":
+		if !authorizer.IsSuperAdmin(userID, chatID) {
+			return "Недостаточно прав", true
+		}
+		return authorizer.WhoAmI(userID, chatID), true
 	case "/dlq":
+		if !authorizer.CanReplayDLQ(userID, chatID) {
+			return "Недостаточно прав", true
+		}
 		if dlqAdmin == nil {
 			return "DLQ недоступен", true
 		}
 		return dlqAdmin.Summary(), true
 	case "/dlq_list":
+		if !authorizer.CanReplayDLQ(userID, chatID) {
+			return "Недостаточно прав", true
+		}
 		if dlqAdmin == nil {
 			return "DLQ недоступен", true
 		}
@@ -184,6 +212,9 @@ func maybeHandleAdminAliasCommandWithDLQ(ctx context.Context, text string, sende
 		}
 		return dlqAdmin.List(limit), true
 	case "/replay":
+		if !authorizer.CanReplayDLQ(userID, chatID) {
+			return "Недостаточно прав", true
+		}
 		if dlqAdmin == nil {
 			return "DLQ недоступен", true
 		}
@@ -192,16 +223,25 @@ func maybeHandleAdminAliasCommandWithDLQ(ctx context.Context, text string, sende
 		}
 		return dlqAdmin.Replay(ctx, parts[1]), true
 	case "/stats7d":
+		if !authorizer.CanViewStats(userID, chatID) {
+			return "Недостаточно прав", true
+		}
 		if statsReporter == nil {
 			return "Статистика недоступна", true
 		}
 		return statsReporter.BuildLastDaysReport(7), true
 	case "/stats30d":
+		if !authorizer.CanViewStats(userID, chatID) {
+			return "Недостаточно прав", true
+		}
 		if statsReporter == nil {
 			return "Статистика недоступна", true
 		}
 		return statsReporter.BuildLastDaysReport(30), true
 	case "/alias":
+		if !authorizer.CanManageAliases(userID, chatID) {
+			return "Недостаточно прав", true
+		}
 		if aliasAdmin == nil {
 			return "Управление алиасами недоступно", true
 		}
@@ -225,6 +265,9 @@ func maybeHandleAdminAliasCommandWithDLQ(ctx context.Context, text string, sende
 		}
 		return fmt.Sprintf("Алиас сохранён: %s -> %s", name, target), true
 	case "/unalias":
+		if !authorizer.CanManageAliases(userID, chatID) {
+			return "Недостаточно прав", true
+		}
 		if aliasAdmin == nil {
 			return "Управление алиасами недоступно", true
 		}
@@ -241,6 +284,9 @@ func maybeHandleAdminAliasCommandWithDLQ(ctx context.Context, text string, sende
 		}
 		return fmt.Sprintf("Алиас удалён: %s", name), true
 	case "/aliases":
+		if !authorizer.CanManageAliases(userID, chatID) {
+			return "Недостаточно прав", true
+		}
 		if aliasAdmin == nil {
 			return "Управление алиасами недоступно", true
 		}
@@ -253,13 +299,11 @@ func buildAliasesListReply(aliases map[string]string) string {
 	if len(aliases) == 0 {
 		return "Список алиасов пуст"
 	}
-
 	names := make([]string, 0, len(aliases))
 	for name := range aliases {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-
 	lines := make([]string, 0, len(names)+2)
 	lines = append(lines, "Алиасы (имя -> chatid -> чат):")
 	for _, name := range names {
@@ -317,11 +361,8 @@ func replyForMessageText(text, chatID string, sender *schemes.User, botUsername,
 	if cmd != "" && !CommandTargetsBot(text, botUsername) {
 		return "", false
 	}
-
 	switch cmd {
-	case "hello":
-		return BuildChatInfoReply(chatID, allowedDomain), true
-	case "help":
+	case "hello", "help":
 		return BuildChatInfoReply(chatID, allowedDomain), true
 	case "start":
 		userID := ""
@@ -330,10 +371,8 @@ func replyForMessageText(text, chatID string, sender *schemes.User, botUsername,
 		}
 		return BuildUserInfoReply(userID, allowedDomain), true
 	}
-
 	if MessageMentionsBot(text, botUsername) {
 		return BuildChatInfoReply(chatID, allowedDomain), true
 	}
-
 	return "", false
 }

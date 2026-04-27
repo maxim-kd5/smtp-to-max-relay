@@ -25,6 +25,7 @@ COPY --from=builder /src/config/aliases.json /app/config/aliases.json
 ENV SMTP_LISTEN_ADDR=:2525 \
     SMTP_ALLOWED_RCPT_DOMAIN=relay.local \
     ALIAS_FILE_PATH=/app/config/aliases.json \
+    ACL_FILE_PATH=/app/config/acl.json \
     MAX_SENDER_MODE=stub \
     METRICS_LISTEN_ADDR=:9090
 

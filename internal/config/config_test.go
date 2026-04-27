@@ -58,13 +58,23 @@ func TestLoadRequiresTokenForBotAPI(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsInvalidAdminChatID(t *testing.T) {
+func TestLoadRejectsInvalidAdminChatIDs(t *testing.T) {
 	clearConfigEnv(t)
-	t.Setenv("ADMIN_CHAT_ID", "oops")
+	t.Setenv("ADMIN_CHAT_IDS", "oops")
 
 	_, err := Load()
-	if err == nil || !strings.Contains(err.Error(), "ADMIN_CHAT_ID must be a valid integer") {
-		t.Fatalf("expected invalid admin chat id error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "ADMIN_CHAT_IDS must contain comma-separated integers") {
+		t.Fatalf("expected invalid admin chat ids error, got %v", err)
+	}
+}
+
+func TestLoadRejectsInvalidAdminUserIDs(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("ADMIN_USER_IDS", "0")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "ADMIN_USER_IDS must contain positive integers") {
+		t.Fatalf("expected invalid admin user ids error, got %v", err)
 	}
 }
 
@@ -87,7 +97,9 @@ func clearConfigEnv(t *testing.T) {
 		"SMTP_MAX_CONCURRENT_SESSIONS",
 		"SMTP_ALLOWED_RCPT_DOMAIN",
 		"ALIAS_FILE_PATH",
-		"ADMIN_CHAT_ID",
+		"ADMIN_CHAT_IDS",
+		"ADMIN_USER_IDS",
+		"ACL_FILE_PATH",
 		"MAX_SENDER_MODE",
 		"MAX_API_BASE_URL",
 		"MAX_BOT_TOKEN",
