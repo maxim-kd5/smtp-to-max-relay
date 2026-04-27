@@ -2,7 +2,6 @@ package dlq
 
 import (
 	"crypto/rand"
-	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -73,11 +72,19 @@ func (s *FileStore) Enqueue(recipient string, rawMessage []byte, lastErr error) 
 		if existing.Fingerprint != "" &&
 			existing.Fingerprint == fingerprint &&
 			(existing.Status == StatusPending || existing.Status == StatusProcessing) {
+			if lastErr != nil {
+				existing.LastError = lastErr.Error()
+			}
+			existing.UpdatedAt = now
+			s.items[existing.ID] = existing
+			if err := s.persistLocked(); err != nil {
+				return Item{}, err
+			}
 			return existing, nil
 		}
 	}
 
-	h := sha1.Sum([]byte(fmt.Sprintf("%d|%x|%x", now.UnixNano(), randomBytes(8), rawMessage)))
+	h := sha256.Sum256([]byte(fmt.Sprintf("%d|%x|%x", now.UnixNano(), randomBytes(8), rawMessage)))
 	item := Item{
 		ID:          hex.EncodeToString(h[:]),
 		Fingerprint: fingerprint,

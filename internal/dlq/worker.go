@@ -59,33 +59,15 @@ func (w *Worker) runOnce(ctx context.Context) {
 		if w.WithReplay != nil {
 			replayCtx = w.WithReplay(ctx)
 		}
-
 		attemptCtx := replayCtx
+		cancel := func() {}
 		if timeout := w.AttemptTimeout; timeout > 0 {
-			var cancel context.CancelFunc
-			attemptCtx, cancel = context.WithTimeout(replayCtx, timeout)
-			err := w.Relay(attemptCtx, item.Recipient, item.RawMessage)
-			cancel()
-			if err == nil {
-				if markErr := w.Store.MarkDone(item.ID); markErr != nil {
-					log.Printf("dlq mark done failed id=%s: %v", item.ID, markErr)
-				}
-				if w.Metrics != nil {
-					w.Metrics.IncDLQReplayed()
-				}
-				continue
-			}
-			next := time.Now().UTC().Add(w.nextDelay(item.Attempt + 1))
-			if markErr := w.Store.MarkRetry(item.ID, next, err, w.MaxRetries); markErr != nil {
-				log.Printf("dlq mark retry failed id=%s: %v", item.ID, markErr)
-			}
-			if w.Metrics != nil {
-				w.Metrics.IncDLQReplayFailed()
-			}
-			continue
+			var cancelFn context.CancelFunc
+			attemptCtx, cancelFn = context.WithTimeout(replayCtx, timeout)
+			cancel = cancelFn
 		}
-
 		err := w.Relay(attemptCtx, item.Recipient, item.RawMessage)
+		cancel()
 		if err == nil {
 			if markErr := w.Store.MarkDone(item.ID); markErr != nil {
 				log.Printf("dlq mark done failed id=%s: %v", item.ID, markErr)

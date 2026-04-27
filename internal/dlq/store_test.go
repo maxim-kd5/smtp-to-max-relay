@@ -76,6 +76,9 @@ func TestFileStoreEnqueueDeduplicatesPendingPayload(t *testing.T) {
 	if a.ID != b.ID {
 		t.Fatalf("expected deduplicated enqueue, got ids %s and %s", a.ID, b.ID)
 	}
+	if b.LastError != "boom2" {
+		t.Fatalf("expected deduplicated item to keep latest error, got %q", b.LastError)
+	}
 }
 
 func TestFileStoreLoadResetsProcessingToPending(t *testing.T) {
