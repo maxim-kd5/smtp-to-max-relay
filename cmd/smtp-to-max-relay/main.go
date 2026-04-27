@@ -28,6 +28,8 @@ func main() {
 		log.Fatalf("aliases error: %v", err)
 	}
 
+	m := metrics.NewCollector()
+
 	var (
 		sender      max.Sender
 		botSender   *max.BotSender
@@ -42,6 +44,12 @@ func main() {
 			log.Fatalf("max sender error: %v", err)
 		}
 		sender = botSender
+		sender = max.NewRateLimitedSender(sender, max.RateLimiterConfig{
+			RPS:           cfg.MaxSendRPS,
+			Burst:         cfg.MaxBurst,
+			QueueCapacity: cfg.MaxQueueCapacity,
+			QueueWait:     cfg.MaxQueueWait,
+		}, m)
 		log.Printf("using MAX sender mode=botapi")
 
 		notifyCtx, cancel := context.WithTimeout(context.Background(), cfg.MaxSendTimeout)
@@ -63,11 +71,15 @@ func main() {
 			log.Printf("MAX bot connected user_id=%d first_name=%q username=%q", botInfo.UserId, botInfo.FirstName, botInfo.Username)
 		}
 	default:
-		sender = max.NewStubSender()
+		sender = max.NewRateLimitedSender(max.NewStubSender(), max.RateLimiterConfig{
+			RPS:           cfg.MaxSendRPS,
+			Burst:         cfg.MaxBurst,
+			QueueCapacity: cfg.MaxQueueCapacity,
+			QueueWait:     cfg.MaxQueueWait,
+		}, m)
 		log.Printf("using MAX sender mode=stub")
 	}
 
-	m := metrics.NewCollector()
 	recipients := recipient.NewParser(cfg.SMTPAllowedDomain, aliases)
 	var dlqAdmin max.DLQAdmin
 

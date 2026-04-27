@@ -18,6 +18,10 @@ type Config struct {
 	MaxAPIBaseURL       string
 	MaxBotToken         string
 	MaxSendTimeout      time.Duration
+	MaxSendRPS          int
+	MaxBurst            int
+	MaxQueueCapacity    int
+	MaxQueueWait        time.Duration
 	RelayMaxRetries     int
 	RelayRetryDelay     time.Duration
 	MetricsListenAddr   string
@@ -39,6 +43,23 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	maxSendTimeoutSec, err := getEnvInt("MAX_SEND_TIMEOUT_SEC", 15)
+	if err != nil {
+		return Config{}, err
+	}
+
+	maxSendRPS, err := getEnvInt("MAX_SEND_RPS", 20)
+	if err != nil {
+		return Config{}, err
+	}
+	maxBurst, err := getEnvInt("MAX_BURST", 40)
+	if err != nil {
+		return Config{}, err
+	}
+	maxQueueCapacity, err := getEnvInt("MAX_QUEUE_CAPACITY", 200)
+	if err != nil {
+		return Config{}, err
+	}
+	maxQueueWaitMS, err := getEnvInt("MAX_QUEUE_WAIT_MS", 1000)
 	if err != nil {
 		return Config{}, err
 	}
@@ -87,6 +108,10 @@ func Load() (Config, error) {
 		MaxAPIBaseURL:       getEnv("MAX_API_BASE_URL", ""),
 		MaxBotToken:         getEnv("MAX_BOT_TOKEN", ""),
 		MaxSendTimeout:      time.Duration(maxSendTimeoutSec) * time.Second,
+		MaxSendRPS:          maxSendRPS,
+		MaxBurst:            maxBurst,
+		MaxQueueCapacity:    maxQueueCapacity,
+		MaxQueueWait:        time.Duration(maxQueueWaitMS) * time.Millisecond,
 		RelayMaxRetries:     relayMaxRetries,
 		RelayRetryDelay:     time.Duration(relayRetryDelayMS) * time.Millisecond,
 		MetricsListenAddr:   getEnv("METRICS_LISTEN_ADDR", ":9090"),
@@ -121,6 +146,19 @@ func Load() (Config, error) {
 	}
 	if cfg.AdminChatID < 0 {
 		return Config{}, fmt.Errorf("ADMIN_CHAT_ID must be >= 0")
+	}
+
+	if cfg.MaxSendRPS < 0 {
+		return Config{}, fmt.Errorf("MAX_SEND_RPS must be >= 0")
+	}
+	if cfg.MaxBurst < 0 {
+		return Config{}, fmt.Errorf("MAX_BURST must be >= 0")
+	}
+	if cfg.MaxQueueCapacity < 0 {
+		return Config{}, fmt.Errorf("MAX_QUEUE_CAPACITY must be >= 0")
+	}
+	if cfg.MaxQueueWait < 0 {
+		return Config{}, fmt.Errorf("MAX_QUEUE_WAIT_MS must be >= 0")
 	}
 
 	if cfg.DLQWorkerInterval < 0 {

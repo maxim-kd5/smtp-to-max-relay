@@ -24,6 +24,10 @@ type Collector struct {
 	dlqDone         atomic.Uint64
 	dlqOldestSec    atomic.Uint64
 
+	maxSendRateLimited atomic.Uint64
+	maxSendQueueDepth  atomic.Uint64
+	maxSendQueueDrop   atomic.Uint64
+
 	mu                sync.Mutex
 	deliveryByAddress map[deliveryKey]uint64
 	deliveryEvents    []deliveryEvent
@@ -59,14 +63,17 @@ func NewCollector() *Collector {
 	}
 }
 
-func (c *Collector) IncReceived()        { c.received.Add(1) }
-func (c *Collector) IncRelayed()         { c.relayed.Add(1) }
-func (c *Collector) IncFailed()          { c.failed.Add(1) }
-func (c *Collector) IncTextSent()        { c.textSent.Add(1) }
-func (c *Collector) IncFilesSent()       { c.filesSent.Add(1) }
-func (c *Collector) IncDLQEnqueued()     { c.dlqEnqueued.Add(1) }
-func (c *Collector) IncDLQReplayed()     { c.dlqReplayed.Add(1) }
-func (c *Collector) IncDLQReplayFailed() { c.dlqReplayFailed.Add(1) }
+func (c *Collector) IncReceived()                  { c.received.Add(1) }
+func (c *Collector) IncRelayed()                   { c.relayed.Add(1) }
+func (c *Collector) IncFailed()                    { c.failed.Add(1) }
+func (c *Collector) IncTextSent()                  { c.textSent.Add(1) }
+func (c *Collector) IncFilesSent()                 { c.filesSent.Add(1) }
+func (c *Collector) IncDLQEnqueued()               { c.dlqEnqueued.Add(1) }
+func (c *Collector) IncDLQReplayed()               { c.dlqReplayed.Add(1) }
+func (c *Collector) IncDLQReplayFailed()           { c.dlqReplayFailed.Add(1) }
+func (c *Collector) IncMaxSendRateLimited()        { c.maxSendRateLimited.Add(1) }
+func (c *Collector) SetMaxSendQueueDepth(v uint64) { c.maxSendQueueDepth.Store(v) }
+func (c *Collector) IncMaxSendQueueDropped()       { c.maxSendQueueDrop.Add(1) }
 func (c *Collector) SetDLQBacklog(pending, failed, done, oldestPendingSeconds uint64) {
 	c.dlqPending.Store(pending)
 	c.dlqFailed.Store(failed)
@@ -136,6 +143,9 @@ func (c *Collector) Handler() http.Handler {
 		_, _ = fmt.Fprintf(w, "smtp_relay_dlq_failed %d\n", c.dlqFailed.Load())
 		_, _ = fmt.Fprintf(w, "smtp_relay_dlq_done %d\n", c.dlqDone.Load())
 		_, _ = fmt.Fprintf(w, "smtp_relay_dlq_oldest_pending_seconds %d\n", c.dlqOldestSec.Load())
+		_, _ = fmt.Fprintf(w, "max_send_rate_limited_total %d\n", c.maxSendRateLimited.Load())
+		_, _ = fmt.Fprintf(w, "max_send_queue_depth %d\n", c.maxSendQueueDepth.Load())
+		_, _ = fmt.Fprintf(w, "max_send_queue_dropped_total %d\n", c.maxSendQueueDrop.Load())
 		for _, line := range c.deliveryMetricLines() {
 			_, _ = fmt.Fprintln(w, line)
 		}
