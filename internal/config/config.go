@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -15,8 +14,7 @@ type Config struct {
 	SMTPAllowedDomain   string
 	AliasFilePath       string
 	ACLFilePath         string
-	AdminChatIDs        []int64
-	AdminUserIDs        []int64
+	AdminChatID         int64
 	MaxSenderMode       string
 	MaxAPIBaseURL       string
 	MaxBotToken         string
@@ -53,11 +51,7 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	adminChatIDs, err := getEnvInt64List("ADMIN_CHAT_IDS", nil)
-	if err != nil {
-		return Config{}, err
-	}
-	adminUserIDs, err := getEnvInt64List("ADMIN_USER_IDS", nil)
+	adminChatID, err := getEnvInt64("ADMIN_CHAT_ID", 0)
 	if err != nil {
 		return Config{}, err
 	}
@@ -90,8 +84,7 @@ func Load() (Config, error) {
 		SMTPAllowedDomain:   getEnv("SMTP_ALLOWED_RCPT_DOMAIN", "relay.local"),
 		AliasFilePath:       getEnv("ALIAS_FILE_PATH", "./config/aliases.json"),
 		ACLFilePath:         getEnv("ACL_FILE_PATH", "./config/acl.json"),
-		AdminChatIDs:        adminChatIDs,
-		AdminUserIDs:        adminUserIDs,
+		AdminChatID:         adminChatID,
 		MaxSenderMode:       getEnv("MAX_SENDER_MODE", "stub"),
 		MaxAPIBaseURL:       getEnv("MAX_API_BASE_URL", ""),
 		MaxBotToken:         getEnv("MAX_BOT_TOKEN", ""),
@@ -128,15 +121,8 @@ func Load() (Config, error) {
 	if cfg.RelayRetryDelay < 0 {
 		return Config{}, fmt.Errorf("RELAY_RETRY_DELAY_MS must be >= 0")
 	}
-	for _, id := range cfg.AdminUserIDs {
-		if id <= 0 {
-			return Config{}, fmt.Errorf("ADMIN_USER_IDS must contain positive integers")
-		}
-	}
-	for _, id := range cfg.AdminChatIDs {
-		if id == 0 {
-			return Config{}, fmt.Errorf("ADMIN_CHAT_IDS must not contain 0")
-		}
+	if cfg.AdminChatID < 0 {
+		return Config{}, fmt.Errorf("ADMIN_CHAT_ID must be >= 0")
 	}
 
 	if cfg.DLQWorkerInterval < 0 {
@@ -196,28 +182,4 @@ func getEnvBool(key string, def bool) (bool, error) {
 		return false, fmt.Errorf("%s must be a valid boolean: %w", key, err)
 	}
 	return b, nil
-}
-
-func getEnvInt64List(key string, def []int64) ([]int64, error) {
-	v := strings.TrimSpace(os.Getenv(key))
-	if v == "" {
-		if def == nil {
-			return []int64{}, nil
-		}
-		return def, nil
-	}
-	parts := strings.Split(v, ",")
-	out := make([]int64, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		n, err := strconv.ParseInt(part, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("%s must contain comma-separated integers: %w", key, err)
-		}
-		out = append(out, n)
-	}
-	return out, nil
 }

@@ -15,7 +15,7 @@ services:
       SMTP_ALLOWED_RCPT_DOMAIN: "relay.local"
       ALIAS_FILE_PATH: "/app/config/aliases.json"
       ACL_FILE_PATH: "/app/config/acl.json"
-      ADMIN_CHAT_IDS: "100"
+      ADMIN_CHAT_ID: "100"
       MAX_SENDER_MODE: "botapi"
       MAX_BOT_TOKEN: "replace-with-real-token"
       RELAY_MAX_RETRIES: "2"

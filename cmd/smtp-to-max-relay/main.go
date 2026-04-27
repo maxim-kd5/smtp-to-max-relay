@@ -36,7 +36,11 @@ func main() {
 		botUsername string
 	)
 
-	aclStore, err := acl.Open(cfg.ACLFilePath, cfg.AdminUserIDs, cfg.AdminChatIDs)
+	bootstrapChats := []int64{}
+	if cfg.AdminChatID != 0 {
+		bootstrapChats = append(bootstrapChats, cfg.AdminChatID)
+	}
+	aclStore, err := acl.Open(cfg.ACLFilePath, nil, bootstrapChats)
 	if err != nil {
 		log.Fatalf("acl init error: %v", err)
 	}
