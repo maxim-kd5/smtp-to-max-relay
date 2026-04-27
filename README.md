@@ -42,6 +42,8 @@ SMTP server does not perform outgoing SMTP delivery and does not forward emails 
 Метрики включают счётчики принятых/успешных/ошибочных сообщений и детализацию пересылок:
 `smtp_relay_delivery_total{address,delivered,max_recipient_id,max_recipient_name}`.
 `max_recipient_name` — локальная часть исходного SMTP-адреса (например alias или `chatid...`).
+Также публикуется гистограмма задержек `smtp_relay_latency_seconds` со stage:
+`email_parse`, `max_send`, `relay_total`.
 
 When `MAX_SENDER_MODE=botapi`, the service also receives bot updates and replies to:
 
