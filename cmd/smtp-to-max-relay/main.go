@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os/signal"
@@ -29,6 +30,8 @@ func main() {
 		log.Fatalf("aliases error: %v", err)
 	}
 
+	m := metrics.NewCollector()
+
 	var (
 		sender      max.Sender
 		botSender   *max.BotSender
@@ -52,6 +55,12 @@ func main() {
 			log.Fatalf("max sender error: %v", err)
 		}
 		sender = botSender
+		sender = max.NewRateLimitedSender(sender, max.RateLimiterConfig{
+			RPS:           cfg.MaxSendRPS,
+			Burst:         cfg.MaxBurst,
+			QueueCapacity: cfg.MaxQueueCapacity,
+			QueueWait:     cfg.MaxQueueWait,
+		}, m)
 		log.Printf("using MAX sender mode=botapi")
 
 		for _, adminChatID := range aclStore.SuperAdminChatIDs() {
@@ -75,11 +84,15 @@ func main() {
 			log.Printf("MAX bot connected user_id=%d first_name=%q username=%q", botInfo.UserId, botInfo.FirstName, botInfo.Username)
 		}
 	default:
-		sender = max.NewStubSender()
+		sender = max.NewRateLimitedSender(max.NewStubSender(), max.RateLimiterConfig{
+			RPS:           cfg.MaxSendRPS,
+			Burst:         cfg.MaxBurst,
+			QueueCapacity: cfg.MaxQueueCapacity,
+			QueueWait:     cfg.MaxQueueWait,
+		}, m)
 		log.Printf("using MAX sender mode=stub")
 	}
 
-	m := metrics.NewCollector()
 	recipients := recipient.NewParser(cfg.SMTPAllowedDomain, aliases)
 	var dlqAdmin max.DLQAdmin
 
@@ -118,8 +131,23 @@ func main() {
 		go dlqWorker.Run(ctx)
 
 		dlqAdmin = &dlq.Admin{
-			Store:      dlqStore,
-			Relay:      relaySvc.Relay,
+			Store: dlqStore,
+			Relay: relaySvc.Relay,
+			DryRun: func(ctx context.Context, rcpt string, raw []byte) (string, error) {
+				parsedRecipient, err := relaySvc.Recipients.Parse(rcpt)
+				if err != nil {
+					return "", err
+				}
+				parsedEmail, err := relaySvc.Email.Parse(raw)
+				if err != nil {
+					return "", err
+				}
+				return fmt.Sprintf(
+					"маршрут валиден: route=%+v, attachments=%d",
+					parsedRecipient,
+					len(parsedEmail.Attachments),
+				), nil
+			},
 			WithReplay: relay.WithDLQBypass,
 			MaxRetries: cfg.DLQMaxRetries,
 			BaseDelay:  cfg.DLQBaseDelay,

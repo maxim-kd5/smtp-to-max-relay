@@ -30,7 +30,7 @@ func (f *fakeSender) SendFile(_ context.Context, _ string, a email.Attachment, _
 
 func TestRelaySendsTextAndAttachment(t *testing.T) {
 	s := &Service{
-		Recipients: recipient.NewParser("relay.local", map[string]string{"alerts": "chatid123.silent"}),
+		Recipients: recipient.NewParser("relay.local", map[string][]string{"alerts": []string{"chatid123.silent"}}),
 		Email:      email.NewParser(1024 * 1024),
 		Sender:     &fakeSender{},
 	}
@@ -47,6 +47,24 @@ func TestRelaySendsTextAndAttachment(t *testing.T) {
 	}
 	if len(fs.files) != 1 {
 		t.Fatalf("expected 1 file send, got %d", len(fs.files))
+	}
+}
+
+func TestRelayFanOutAliasGroup(t *testing.T) {
+	s := &Service{
+		Recipients: recipient.NewParser("relay.local", map[string][]string{"alerts": []string{"chatid111", "chatid222.silent"}}),
+		Email:      email.NewParser(1024 * 1024),
+		Sender:     &fakeSender{},
+	}
+
+	raw := []byte("Subject: Group\r\nFrom: sender@example.com\r\nContent-Type: text/plain\r\n\r\nBody")
+	if err := s.Relay(context.Background(), "alerts@relay.local", raw); err != nil {
+		t.Fatalf("relay failed: %v", err)
+	}
+
+	fs := s.Sender.(*fakeSender)
+	if len(fs.texts) != 2 {
+		t.Fatalf("expected fan-out text sends to 2 recipients, got %d", len(fs.texts))
 	}
 }
 

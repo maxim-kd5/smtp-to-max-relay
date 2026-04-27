@@ -11,6 +11,7 @@ import (
 type Admin struct {
 	Store      Store
 	Relay      RelayFunc
+	DryRun     func(context.Context, string, []byte) (string, error)
 	WithReplay func(context.Context) context.Context
 	MaxRetries int
 	BaseDelay  time.Duration
@@ -75,6 +76,100 @@ func (a *Admin) Replay(ctx context.Context, id string) string {
 		return fmt.Sprintf("Replay отправлен, но не удалось обновить DLQ: %v", err)
 	}
 	return fmt.Sprintf("Replay успешно выполнен: %s", id)
+}
+
+func (a *Admin) Show(id string) string {
+	if a == nil || a.Store == nil {
+		return "DLQ недоступен"
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "Использование: /dlq_show <id>"
+	}
+	item, ok := a.Store.Get(id)
+	if !ok {
+		return fmt.Sprintf("Элемент DLQ не найден: %s", id)
+	}
+	return strings.Join([]string{
+		fmt.Sprintf("DLQ item %s", item.ID),
+		fmt.Sprintf("- recipient: %s", item.Recipient),
+		fmt.Sprintf("- status: %s", item.Status),
+		fmt.Sprintf("- attempts: %d", item.Attempt),
+		fmt.Sprintf("- last_error: %s", fallback(item.LastError, "-")),
+		fmt.Sprintf("- next_retry_at: %s", item.NextRetryAt.Format(time.RFC3339)),
+		fmt.Sprintf("- created_at: %s", item.CreatedAt.Format(time.RFC3339)),
+		fmt.Sprintf("- updated_at: %s", item.UpdatedAt.Format(time.RFC3339)),
+	}, "\n")
+}
+
+func (a *Admin) ReplayDry(ctx context.Context, id string) string {
+	if a == nil || a.Store == nil || a.DryRun == nil {
+		return "DLQ dry-run недоступен"
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "Использование: /replay_dry <id>"
+	}
+	item, ok := a.Store.Get(id)
+	if !ok {
+		return fmt.Sprintf("Элемент DLQ не найден: %s", id)
+	}
+	msg, err := a.DryRun(ctx, item.Recipient, item.RawMessage)
+	if err != nil {
+		return fmt.Sprintf("Dry-run не прошёл: %v", err)
+	}
+	return fmt.Sprintf("Dry-run OK для %s: %s", id, msg)
+}
+
+func (a *Admin) ReplayBatch(ctx context.Context, limit int, mode string) string {
+	if a == nil || a.Store == nil || a.Relay == nil {
+		return "DLQ replay недоступен"
+	}
+	if limit <= 0 {
+		return "Использование: /replay_batch <limit> [only_failed|only_pending]"
+	}
+	want, err := parseReplayBatchMode(mode)
+	if err != nil {
+		return err.Error()
+	}
+
+	items := a.Store.List(1000000)
+	selected := make([]Item, 0, limit)
+	for _, item := range items {
+		if !want[item.Status] {
+			continue
+		}
+		selected = append(selected, item)
+		if len(selected) == limit {
+			break
+		}
+	}
+	if len(selected) == 0 {
+		return "Нет элементов для replay_batch"
+	}
+
+	var okCount, failCount int
+	for _, item := range selected {
+		res := a.Replay(ctx, item.ID)
+		if strings.HasPrefix(res, "Replay успешно выполнен:") {
+			okCount++
+			continue
+		}
+		failCount++
+	}
+	return fmt.Sprintf("Replay batch завершён: всего=%d ok=%d failed=%d", len(selected), okCount, failCount)
+}
+
+func parseReplayBatchMode(mode string) (map[Status]bool, error) {
+	v := strings.TrimSpace(strings.ToLower(mode))
+	switch v {
+	case "", "only_pending":
+		return map[Status]bool{StatusPending: true}, nil
+	case "only_failed":
+		return map[Status]bool{StatusFailed: true}, nil
+	default:
+		return nil, fmt.Errorf("Использование: /replay_batch <limit> [only_failed|only_pending]")
+	}
 }
 
 func shortID(id string) string {

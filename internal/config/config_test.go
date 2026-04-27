@@ -78,6 +78,16 @@ func TestLoadRejectsInvalidMaxConcurrentSessions(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsNegativeRateLimitSettings(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("MAX_SEND_RPS", "-1")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "MAX_SEND_RPS must be >= 0") {
+		t.Fatalf("expected MAX_SEND_RPS validation error, got %v", err)
+	}
+}
+
 func clearConfigEnv(t *testing.T) {
 	t.Helper()
 
@@ -93,6 +103,10 @@ func clearConfigEnv(t *testing.T) {
 		"MAX_API_BASE_URL",
 		"MAX_BOT_TOKEN",
 		"MAX_SEND_TIMEOUT_SEC",
+		"MAX_SEND_RPS",
+		"MAX_BURST",
+		"MAX_QUEUE_CAPACITY",
+		"MAX_QUEUE_WAIT_MS",
 		"RELAY_MAX_RETRIES",
 		"RELAY_RETRY_DELAY_MS",
 		"METRICS_LISTEN_ADDR",
