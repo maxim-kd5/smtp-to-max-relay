@@ -20,8 +20,23 @@ type testStatsReporter struct {
 	report string
 }
 
+type testDLQAdmin struct {
+	summary string
+	list    string
+	replay  string
+}
+
 func (s *testStatsReporter) BuildLastDaysReport(days int) string {
 	return s.report
+}
+
+func (d *testDLQAdmin) Summary() string { return d.summary }
+func (d *testDLQAdmin) List(limit int) string {
+	return fmt.Sprintf("%s:%d", d.list, limit)
+}
+func (d *testDLQAdmin) Replay(ctx context.Context, id string) string {
+	_ = ctx
+	return fmt.Sprintf("%s:%s", d.replay, id)
 }
 
 func (a *testAliasAdmin) ValidateAliasTarget(local string) error {
@@ -144,6 +159,25 @@ func TestMaybeHandleAdminAliasCommandAliasesList(t *testing.T) {
 	}
 	if !strings.Contains(reply, "- ops -> -77 -> (название чата недоступно через Bot API)") {
 		t.Fatalf("expected ops entry, got %q", reply)
+	}
+}
+
+func TestMaybeHandleAdminAliasCommandDLQ(t *testing.T) {
+	d := &testDLQAdmin{summary: "DLQ summary", list: "DLQ list", replay: "replay"}
+	admin := &schemes.User{UserId: 42}
+	reply, ok := maybeHandleAdminAliasCommandWithDLQ(context.Background(), "/dlq", admin, 100, "", nil, nil, d, 100)
+	if !ok || reply != "DLQ summary" {
+		t.Fatalf("unexpected /dlq reply: ok=%v reply=%q", ok, reply)
+	}
+
+	reply, ok = maybeHandleAdminAliasCommandWithDLQ(context.Background(), "/dlq_list 5", admin, 100, "", nil, nil, d, 100)
+	if !ok || reply != "DLQ list:5" {
+		t.Fatalf("unexpected /dlq_list reply: ok=%v reply=%q", ok, reply)
+	}
+
+	reply, ok = maybeHandleAdminAliasCommandWithDLQ(context.Background(), "/replay abc123", admin, 100, "", nil, nil, d, 100)
+	if !ok || reply != "replay:abc123" {
+		t.Fatalf("unexpected /replay reply: ok=%v reply=%q", ok, reply)
 	}
 }
 

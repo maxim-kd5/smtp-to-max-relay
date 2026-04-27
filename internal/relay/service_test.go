@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"smtp-to-max-relay/internal/dlq"
 	"smtp-to-max-relay/internal/email"
 	"smtp-to-max-relay/internal/recipient"
 )
@@ -159,5 +160,48 @@ func TestRelaySendsInlineImageFromHTMLBody(t *testing.T) {
 	}
 	if fs.files[0].ContentType != "image/png" {
 		t.Fatalf("unexpected inline image content type: %q", fs.files[0].ContentType)
+	}
+}
+
+type fakeDLQ struct{ enqueued int }
+
+func (f *fakeDLQ) Enqueue(_ string, _ []byte, _ error) (dlq.Item, error) {
+	f.enqueued++
+	return dlq.Item{ID: "1"}, nil
+}
+func (f *fakeDLQ) PickDue(_ int, _ time.Time) ([]dlq.Item, error) { return nil, nil }
+func (f *fakeDLQ) MarkDone(_ string) error                        { return nil }
+func (f *fakeDLQ) MarkRetry(_ string, _ time.Time, _ error, _ int) error {
+	return nil
+}
+func (f *fakeDLQ) Stats() dlq.Stats                                   { return dlq.Stats{} }
+func (f *fakeDLQ) OldestPendingAge(_ time.Time) (time.Duration, bool) { return 0, false }
+func (f *fakeDLQ) Get(_ string) (dlq.Item, bool)                      { return dlq.Item{}, false }
+func (f *fakeDLQ) List(_ int) []dlq.Item                              { return nil }
+
+type alwaysFailSender struct{}
+
+func (a *alwaysFailSender) SendText(_ context.Context, _, _ string, _ bool) error {
+	return errors.New("fail")
+}
+func (a *alwaysFailSender) SendFile(_ context.Context, _ string, _ email.Attachment, _ bool) error {
+	return nil
+}
+
+func TestRelayEnqueuesDLQOnSendError(t *testing.T) {
+	q := &fakeDLQ{}
+	s := &Service{
+		Recipients: recipient.NewParser("relay.local", nil),
+		Email:      email.NewParser(1024 * 1024),
+		Sender:     &alwaysFailSender{},
+		DLQ:        q,
+	}
+
+	raw := []byte("Subject: X\r\nFrom: sender@example.com\r\nContent-Type: text/plain\r\n\r\nBody")
+	if err := s.Relay(context.Background(), "chatid123@relay.local", raw); err == nil {
+		t.Fatalf("expected relay error")
+	}
+	if q.enqueued != 1 {
+		t.Fatalf("expected 1 dlq enqueue, got %d", q.enqueued)
 	}
 }

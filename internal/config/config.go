@@ -21,6 +21,12 @@ type Config struct {
 	RelayMaxRetries     int
 	RelayRetryDelay     time.Duration
 	MetricsListenAddr   string
+	DLQEnabled          bool
+	DLQFilePath         string
+	DLQWorkerInterval   time.Duration
+	DLQMaxRetries       int
+	DLQBaseDelay        time.Duration
+	DLQMaxDelay         time.Duration
 }
 
 func Load() (Config, error) {
@@ -49,6 +55,27 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	dlqEnabled, err := getEnvBool("DLQ_ENABLED", true)
+	if err != nil {
+		return Config{}, err
+	}
+	dlqWorkerIntervalMS, err := getEnvInt("DLQ_WORKER_INTERVAL_MS", 2000)
+	if err != nil {
+		return Config{}, err
+	}
+	dlqMaxRetries, err := getEnvInt("DLQ_MAX_RETRIES", 10)
+	if err != nil {
+		return Config{}, err
+	}
+	dlqBaseDelayMS, err := getEnvInt("DLQ_BASE_DELAY_MS", 1000)
+	if err != nil {
+		return Config{}, err
+	}
+	dlqMaxDelayMS, err := getEnvInt("DLQ_MAX_DELAY_MS", 300000)
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		SMTPListenAddr:      getEnv("SMTP_LISTEN_ADDR", ":25"),
 		SMTPMaxMessageBytes: smtpMaxMessageBytes,
@@ -63,6 +90,12 @@ func Load() (Config, error) {
 		RelayMaxRetries:     relayMaxRetries,
 		RelayRetryDelay:     time.Duration(relayRetryDelayMS) * time.Millisecond,
 		MetricsListenAddr:   getEnv("METRICS_LISTEN_ADDR", ":9090"),
+		DLQEnabled:          dlqEnabled,
+		DLQFilePath:         getEnv("DLQ_FILE_PATH", "./data/dlq.json"),
+		DLQWorkerInterval:   time.Duration(dlqWorkerIntervalMS) * time.Millisecond,
+		DLQMaxRetries:       dlqMaxRetries,
+		DLQBaseDelay:        time.Duration(dlqBaseDelayMS) * time.Millisecond,
+		DLQMaxDelay:         time.Duration(dlqMaxDelayMS) * time.Millisecond,
 	}
 
 	if cfg.SMTPAllowedDomain == "" {
@@ -88,6 +121,19 @@ func Load() (Config, error) {
 	}
 	if cfg.AdminChatID < 0 {
 		return Config{}, fmt.Errorf("ADMIN_CHAT_ID must be >= 0")
+	}
+
+	if cfg.DLQWorkerInterval < 0 {
+		return Config{}, fmt.Errorf("DLQ_WORKER_INTERVAL_MS must be >= 0")
+	}
+	if cfg.DLQMaxRetries < 0 {
+		return Config{}, fmt.Errorf("DLQ_MAX_RETRIES must be >= 0")
+	}
+	if cfg.DLQBaseDelay < 0 {
+		return Config{}, fmt.Errorf("DLQ_BASE_DELAY_MS must be >= 0")
+	}
+	if cfg.DLQMaxDelay < 0 {
+		return Config{}, fmt.Errorf("DLQ_MAX_DELAY_MS must be >= 0")
 	}
 
 	return cfg, nil
@@ -122,4 +168,16 @@ func getEnvInt64(key string, def int64) (int64, error) {
 		return 0, fmt.Errorf("%s must be a valid integer: %w", key, err)
 	}
 	return n, nil
+}
+
+func getEnvBool(key string, def bool) (bool, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return def, nil
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, fmt.Errorf("%s must be a valid boolean: %w", key, err)
+	}
+	return b, nil
 }

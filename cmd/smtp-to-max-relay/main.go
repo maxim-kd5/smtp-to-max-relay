@@ -2,14 +2,13 @@ package main
 
 import (
 	"context"
-	"errors"
 	"log"
 	"net/http"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"smtp-to-max-relay/internal/config"
+	"smtp-to-max-relay/internal/dlq"
 	"smtp-to-max-relay/internal/email"
 	"smtp-to-max-relay/internal/max"
 	"smtp-to-max-relay/internal/metrics"
@@ -70,6 +69,7 @@ func main() {
 
 	m := metrics.NewCollector()
 	recipients := recipient.NewParser(cfg.SMTPAllowedDomain, aliases)
+	var dlqAdmin max.DLQAdmin
 
 	relaySvc := &relay.Service{
 		Recipients:     recipients,
@@ -80,16 +80,42 @@ func main() {
 		Metrics:        m,
 	}
 
-	server := smtpsrv.NewServer(
-		cfg.SMTPListenAddr,
-		cfg.SMTPAllowedDomain,
-		cfg.SMTPMaxMessageBytes,
-		cfg.SMTPMaxSessions,
-		relaySvc,
-	)
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	if cfg.DLQEnabled {
+		dlqStore, err := dlq.NewFileStore(cfg.DLQFilePath)
+		if err != nil {
+			log.Fatalf("dlq init error: %v", err)
+		}
+		relaySvc.DLQ = dlqStore
+		log.Printf("DLQ enabled path=%s", cfg.DLQFilePath)
+
+		dlqWorker := &dlq.Worker{
+			Store:          dlqStore,
+			Relay:          relaySvc.Relay,
+			Interval:       cfg.DLQWorkerInterval,
+			BaseDelay:      cfg.DLQBaseDelay,
+			MaxDelay:       cfg.DLQMaxDelay,
+			MaxRetries:     cfg.DLQMaxRetries,
+			BatchSize:      10,
+			WithReplay:     relay.WithDLQBypass,
+			Metrics:        m,
+			AttemptTimeout: cfg.MaxSendTimeout,
+		}
+		go dlqWorker.Run(ctx)
+
+		dlqAdmin = &dlq.Admin{
+			Store:      dlqStore,
+			Relay:      relaySvc.Relay,
+			WithReplay: relay.WithDLQBypass,
+			MaxRetries: cfg.DLQMaxRetries,
+			BaseDelay:  cfg.DLQBaseDelay,
+			MaxDelay:   cfg.DLQMaxDelay,
+		}
+	}
+
+	server := smtpsrv.NewServer(cfg.SMTPListenAddr, cfg.SMTPAllowedDomain, cfg.SMTPMaxMessageBytes, cfg.SMTPMaxSessions, relaySvc)
 
 	if botSender != nil {
 		go max.RunBotLoopWithUsername(
@@ -102,29 +128,16 @@ func main() {
 			cfg.AliasFilePath,
 			recipients,
 			m,
+			dlqAdmin,
 			cfg.AdminChatID,
 		)
 	}
 
 	if cfg.MetricsListenAddr != "" {
-		metricsServer := &http.Server{
-			Addr:    cfg.MetricsListenAddr,
-			Handler: m.Handler(),
-		}
-
 		go func() {
 			log.Printf("metrics listening on %s", cfg.MetricsListenAddr)
-			if err := metricsServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if err := http.ListenAndServe(cfg.MetricsListenAddr, m.Handler()); err != nil {
 				log.Printf("metrics server stopped: %v", err)
-			}
-		}()
-
-		go func() {
-			<-ctx.Done()
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := metricsServer.Shutdown(shutdownCtx); err != nil {
-				log.Printf("metrics shutdown error: %v", err)
 			}
 		}()
 	}

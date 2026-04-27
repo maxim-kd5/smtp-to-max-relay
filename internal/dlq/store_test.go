@@ -1,0 +1,119 @@
+package dlq
+
+import (
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func TestFileStoreEnqueueAndRetryLifecycle(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewFileStore(filepath.Join(dir, "dlq.json"))
+	if err != nil {
+		t.Fatalf("NewFileStore failed: %v", err)
+	}
+
+	item, err := store.Enqueue("chatid1@relay.local", []byte("msg"), nil)
+	if err != nil {
+		t.Fatalf("Enqueue failed: %v", err)
+	}
+
+	due, err := store.PickDue(10, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("PickDue failed: %v", err)
+	}
+	if len(due) != 1 || due[0].ID != item.ID {
+		t.Fatalf("unexpected due items: %#v", due)
+	}
+
+	next := time.Now().UTC().Add(time.Second)
+	if err := store.MarkRetry(item.ID, next, errTest("boom"), 3); err != nil {
+		t.Fatalf("MarkRetry failed: %v", err)
+	}
+
+	due, err = store.PickDue(10, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("PickDue failed: %v", err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("did not expect due items before next retry")
+	}
+
+	due, err = store.PickDue(10, next.Add(time.Millisecond))
+	if err != nil {
+		t.Fatalf("PickDue failed: %v", err)
+	}
+	if len(due) != 1 {
+		t.Fatalf("expected due item after retry time")
+	}
+
+	if err := store.MarkDone(item.ID); err != nil {
+		t.Fatalf("MarkDone failed: %v", err)
+	}
+
+	st := store.Stats()
+	if st.Done != 1 {
+		t.Fatalf("expected done=1 got %d", st.Done)
+	}
+}
+
+func TestFileStoreEnqueueDeduplicatesPendingPayload(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewFileStore(filepath.Join(dir, "dlq.json"))
+	if err != nil {
+		t.Fatalf("NewFileStore failed: %v", err)
+	}
+
+	a, err := store.Enqueue("chatid1@relay.local", []byte("msg"), errTest("boom"))
+	if err != nil {
+		t.Fatalf("Enqueue failed: %v", err)
+	}
+	b, err := store.Enqueue("chatid1@relay.local", []byte("msg"), errTest("boom2"))
+	if err != nil {
+		t.Fatalf("Enqueue failed: %v", err)
+	}
+
+	if a.ID != b.ID {
+		t.Fatalf("expected deduplicated enqueue, got ids %s and %s", a.ID, b.ID)
+	}
+	if b.LastError != "boom2" {
+		t.Fatalf("expected deduplicated item to keep latest error, got %q", b.LastError)
+	}
+}
+
+func TestFileStoreLoadResetsProcessingToPending(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dlq.json")
+	store, err := NewFileStore(path)
+	if err != nil {
+		t.Fatalf("NewFileStore failed: %v", err)
+	}
+
+	item, err := store.Enqueue("chatid1@relay.local", []byte("msg"), nil)
+	if err != nil {
+		t.Fatalf("Enqueue failed: %v", err)
+	}
+	due, err := store.PickDue(1, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("PickDue failed: %v", err)
+	}
+	if len(due) != 1 || due[0].ID != item.ID {
+		t.Fatalf("expected item to become processing")
+	}
+
+	reloaded, err := NewFileStore(path)
+	if err != nil {
+		t.Fatalf("NewFileStore reload failed: %v", err)
+	}
+	due, err = reloaded.PickDue(1, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("PickDue after reload failed: %v", err)
+	}
+	if len(due) != 1 {
+		t.Fatalf("expected processing item to be reset to pending on load")
+	}
+}
+
+type errTest string
+
+func (e errTest) Error() string { return string(e) }

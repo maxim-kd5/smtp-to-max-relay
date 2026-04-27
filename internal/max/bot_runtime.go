@@ -28,6 +28,12 @@ type StatsReporter interface {
 	BuildLastDaysReport(days int) string
 }
 
+type DLQAdmin interface {
+	Summary() string
+	List(limit int) string
+	Replay(ctx context.Context, id string) string
+}
+
 var numericAliasTargetPattern = regexp.MustCompile(`^-?\d+(\.silent)?$`)
 
 func SendStartupNotification(ctx context.Context, sender Sender, adminChatID int64) error {
@@ -49,6 +55,7 @@ func RunBotLoopWithUsername(
 	aliasFilePath string,
 	aliasAdmin AliasAdmin,
 	statsReporter StatsReporter,
+	dlqAdmin DLQAdmin,
 	aliasAdminChatID int64,
 ) {
 	if api == nil || sender == nil {
@@ -79,19 +86,19 @@ func RunBotLoopWithUsername(
 			if !ok {
 				return
 			}
-			handleBotUpdate(ctx, sender, botUserID, botUsername, allowedDomain, aliasFilePath, aliasAdmin, statsReporter, aliasAdminChatID, upd)
+			handleBotUpdate(ctx, sender, botUserID, botUsername, allowedDomain, aliasFilePath, aliasAdmin, statsReporter, dlqAdmin, aliasAdminChatID, upd)
 		}
 	}
 }
 
-func handleBotUpdate(ctx context.Context, sender Sender, botUserID int64, botUsername, allowedDomain, aliasFilePath string, aliasAdmin AliasAdmin, statsReporter StatsReporter, aliasAdminChatID int64, upd schemes.UpdateInterface) {
+func handleBotUpdate(ctx context.Context, sender Sender, botUserID int64, botUsername, allowedDomain, aliasFilePath string, aliasAdmin AliasAdmin, statsReporter StatsReporter, dlqAdmin DLQAdmin, aliasAdminChatID int64, upd schemes.UpdateInterface) {
 	switch upd := upd.(type) {
 	case *schemes.MessageCreatedUpdate:
-		handleMessageCreatedUpdate(ctx, sender, botUserID, botUsername, allowedDomain, aliasFilePath, aliasAdmin, statsReporter, aliasAdminChatID, upd)
+		handleMessageCreatedUpdate(ctx, sender, botUserID, botUsername, allowedDomain, aliasFilePath, aliasAdmin, statsReporter, dlqAdmin, aliasAdminChatID, upd)
 	}
 }
 
-func handleMessageCreatedUpdate(ctx context.Context, sender Sender, botUserID int64, botUsername, allowedDomain, aliasFilePath string, aliasAdmin AliasAdmin, statsReporter StatsReporter, aliasAdminChatID int64, upd *schemes.MessageCreatedUpdate) {
+func handleMessageCreatedUpdate(ctx context.Context, sender Sender, botUserID int64, botUsername, allowedDomain, aliasFilePath string, aliasAdmin AliasAdmin, statsReporter StatsReporter, dlqAdmin DLQAdmin, aliasAdminChatID int64, upd *schemes.MessageCreatedUpdate) {
 	if upd == nil {
 		return
 	}
@@ -117,13 +124,15 @@ func handleMessageCreatedUpdate(ctx context.Context, sender Sender, botUserID in
 		allowedDomain,
 	)
 	if !ok {
-		reply, ok = maybeHandleAdminAliasCommand(
+		reply, ok = maybeHandleAdminAliasCommandWithDLQ(
+			ctx,
 			upd.Message.Body.Text,
 			upd.Message.Sender,
 			chatID,
 			aliasFilePath,
 			aliasAdmin,
 			statsReporter,
+			dlqAdmin,
 			aliasAdminChatID,
 		)
 	}
@@ -140,6 +149,10 @@ func handleMessageCreatedUpdate(ctx context.Context, sender Sender, botUserID in
 }
 
 func maybeHandleAdminAliasCommand(text string, sender *schemes.User, chatID int64, aliasFilePath string, aliasAdmin AliasAdmin, statsReporter StatsReporter, adminChatID int64) (string, bool) {
+	return maybeHandleAdminAliasCommandWithDLQ(context.Background(), text, sender, chatID, aliasFilePath, aliasAdmin, statsReporter, nil, adminChatID)
+}
+
+func maybeHandleAdminAliasCommandWithDLQ(ctx context.Context, text string, sender *schemes.User, chatID int64, aliasFilePath string, aliasAdmin AliasAdmin, statsReporter StatsReporter, dlqAdmin DLQAdmin, adminChatID int64) (string, bool) {
 	if adminChatID == 0 {
 		return "", false
 	}
@@ -152,6 +165,32 @@ func maybeHandleAdminAliasCommand(text string, sender *schemes.User, chatID int6
 		return "", false
 	}
 	switch strings.ToLower(parts[0]) {
+	case "/dlq":
+		if dlqAdmin == nil {
+			return "DLQ недоступен", true
+		}
+		return dlqAdmin.Summary(), true
+	case "/dlq_list":
+		if dlqAdmin == nil {
+			return "DLQ недоступен", true
+		}
+		limit := 10
+		if len(parts) == 2 {
+			n, err := strconv.Atoi(parts[1])
+			if err != nil || n <= 0 {
+				return "Использование: /dlq_list <limit>", true
+			}
+			limit = n
+		}
+		return dlqAdmin.List(limit), true
+	case "/replay":
+		if dlqAdmin == nil {
+			return "DLQ недоступен", true
+		}
+		if len(parts) != 2 {
+			return "Использование: /replay <id>", true
+		}
+		return dlqAdmin.Replay(ctx, parts[1]), true
 	case "/stats7d":
 		if statsReporter == nil {
 			return "Статистика недоступна", true

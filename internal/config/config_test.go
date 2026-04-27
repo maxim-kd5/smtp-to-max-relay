@@ -95,6 +95,12 @@ func clearConfigEnv(t *testing.T) {
 		"RELAY_MAX_RETRIES",
 		"RELAY_RETRY_DELAY_MS",
 		"METRICS_LISTEN_ADDR",
+		"DLQ_MAX_DELAY_MS",
+		"DLQ_BASE_DELAY_MS",
+		"DLQ_MAX_RETRIES",
+		"DLQ_WORKER_INTERVAL_MS",
+		"DLQ_FILE_PATH",
+		"DLQ_ENABLED",
 	} {
 		t.Setenv(key, "")
 	}

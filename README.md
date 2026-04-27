@@ -23,6 +23,12 @@ Environment variables:
 - `RELAY_MAX_RETRIES` (default `2`)
 - `RELAY_RETRY_DELAY_MS` (default `300`)
 - `METRICS_LISTEN_ADDR` (default `:9090`, set empty to disable)
+- `DLQ_ENABLED` (default `true`; persist failed deliveries for replay)
+- `DLQ_FILE_PATH` (default `./data/dlq.json`)
+- `DLQ_WORKER_INTERVAL_MS` (default `2000`)
+- `DLQ_MAX_RETRIES` (default `10`)
+- `DLQ_BASE_DELAY_MS` (default `1000`)
+- `DLQ_MAX_DELAY_MS` (default `300000`)
 
 `MAX_SENDER_MODE=botapi` uses `github.com/max-messenger/max-bot-api-client-go` for outgoing MAX messages, file uploads, and long polling bot updates.
 
@@ -39,9 +45,12 @@ SMTP AUTH: relay mode does not require authentication. If a client attempts `AUT
 
 SMTP server does not perform outgoing SMTP delivery and does not forward emails to external recipient domains; it only converts accepted inbound messages to MAX sends.
 
+When delivery to MAX fails after immediate retries, the raw message is saved to DLQ and retried in background with exponential backoff.
+
 Метрики включают счётчики принятых/успешных/ошибочных сообщений и детализацию пересылок:
 `smtp_relay_delivery_total{address,delivered,max_recipient_id,max_recipient_name}`.
 `max_recipient_name` — локальная часть исходного SMTP-адреса (например alias или `chatid...`).
+Для DLQ дополнительно экспортируются `smtp_relay_dlq_pending`, `smtp_relay_dlq_failed`, `smtp_relay_dlq_done`.
 Также публикуется гистограмма задержек `smtp_relay_latency_seconds` со stage:
 `email_parse`, `max_send`, `relay_total`.
 
@@ -54,6 +63,9 @@ When `MAX_SENDER_MODE=botapi`, the service also receives bot updates and replies
   - `/unalias <name>` — remove alias
   - `/stats7d` — отправить статистику relay за последние 7 дней
   - `/stats30d` — отправить статистику relay за последние 30 дней
+  - `/dlq` — показать текущий backlog DLQ
+  - `/dlq_list <limit>` — показать последние элементы DLQ
+  - `/replay <id>` — вручную выполнить replay конкретного элемента DLQ
 
 Пример:
 - `/alias admin 260920412` сохранится как `admin -> chatid260920412`
