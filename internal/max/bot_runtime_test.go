@@ -23,7 +23,10 @@ type testStatsReporter struct {
 type testDLQAdmin struct {
 	summary string
 	list    string
+	show    string
 	replay  string
+	dry     string
+	batch   string
 }
 
 func (s *testStatsReporter) BuildLastDaysReport(days int) string {
@@ -34,9 +37,20 @@ func (d *testDLQAdmin) Summary() string { return d.summary }
 func (d *testDLQAdmin) List(limit int) string {
 	return fmt.Sprintf("%s:%d", d.list, limit)
 }
+func (d *testDLQAdmin) Show(id string) string {
+	return fmt.Sprintf("%s:%s", d.show, id)
+}
 func (d *testDLQAdmin) Replay(ctx context.Context, id string) string {
 	_ = ctx
 	return fmt.Sprintf("%s:%s", d.replay, id)
+}
+func (d *testDLQAdmin) ReplayDry(ctx context.Context, id string) string {
+	_ = ctx
+	return fmt.Sprintf("%s:%s", d.dry, id)
+}
+func (d *testDLQAdmin) ReplayBatch(ctx context.Context, limit int, mode string) string {
+	_ = ctx
+	return fmt.Sprintf("%s:%d:%s", d.batch, limit, mode)
 }
 
 func (a *testAliasAdmin) ValidateAliasTarget(local string) error {
@@ -163,7 +177,7 @@ func TestMaybeHandleAdminAliasCommandAliasesList(t *testing.T) {
 }
 
 func TestMaybeHandleAdminAliasCommandDLQ(t *testing.T) {
-	d := &testDLQAdmin{summary: "DLQ summary", list: "DLQ list", replay: "replay"}
+	d := &testDLQAdmin{summary: "DLQ summary", list: "DLQ list", show: "show", replay: "replay", dry: "dry", batch: "batch"}
 	admin := &schemes.User{UserId: 42}
 	reply, ok := maybeHandleAdminAliasCommandWithDLQ(context.Background(), "/dlq", admin, 100, "", nil, nil, d, 100)
 	if !ok || reply != "DLQ summary" {
@@ -175,9 +189,34 @@ func TestMaybeHandleAdminAliasCommandDLQ(t *testing.T) {
 		t.Fatalf("unexpected /dlq_list reply: ok=%v reply=%q", ok, reply)
 	}
 
+	reply, ok = maybeHandleAdminAliasCommandWithDLQ(context.Background(), "/dlq_show abc123", admin, 100, "", nil, nil, d, 100)
+	if !ok || reply != "show:abc123" {
+		t.Fatalf("unexpected /dlq_show reply: ok=%v reply=%q", ok, reply)
+	}
+
+	reply, ok = maybeHandleAdminAliasCommandWithDLQ(context.Background(), "/replay_dry abc123", admin, 100, "", nil, nil, d, 100)
+	if !ok || reply != "dry:abc123" {
+		t.Fatalf("unexpected /replay_dry reply: ok=%v reply=%q", ok, reply)
+	}
+
 	reply, ok = maybeHandleAdminAliasCommandWithDLQ(context.Background(), "/replay abc123", admin, 100, "", nil, nil, d, 100)
+	if !ok || !strings.Contains(reply, "Требуется подтверждение") {
+		t.Fatalf("unexpected /replay confirmation reply: ok=%v reply=%q", ok, reply)
+	}
+	token := strings.TrimSpace(strings.TrimPrefix(strings.Split(reply, "(")[0], "Требуется подтверждение: /confirm"))
+	reply, ok = maybeHandleAdminAliasCommandWithDLQ(context.Background(), "/confirm "+token, admin, 100, "", nil, nil, d, 100)
 	if !ok || reply != "replay:abc123" {
-		t.Fatalf("unexpected /replay reply: ok=%v reply=%q", ok, reply)
+		t.Fatalf("unexpected /confirm replay reply: ok=%v reply=%q", ok, reply)
+	}
+
+	reply, ok = maybeHandleAdminAliasCommandWithDLQ(context.Background(), "/replay_batch 3 only_failed", admin, 100, "", nil, nil, d, 100)
+	if !ok || !strings.Contains(reply, "Требуется подтверждение") {
+		t.Fatalf("unexpected /replay_batch confirmation reply: ok=%v reply=%q", ok, reply)
+	}
+	token = strings.TrimSpace(strings.TrimPrefix(strings.Split(reply, "(")[0], "Требуется подтверждение: /confirm"))
+	reply, ok = maybeHandleAdminAliasCommandWithDLQ(context.Background(), "/confirm "+token, admin, 100, "", nil, nil, d, 100)
+	if !ok || reply != "batch:3:only_failed" {
+		t.Fatalf("unexpected /confirm replay_batch reply: ok=%v reply=%q", ok, reply)
 	}
 }
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os/signal"
@@ -106,8 +107,23 @@ func main() {
 		go dlqWorker.Run(ctx)
 
 		dlqAdmin = &dlq.Admin{
-			Store:      dlqStore,
-			Relay:      relaySvc.Relay,
+			Store: dlqStore,
+			Relay: relaySvc.Relay,
+			DryRun: func(ctx context.Context, rcpt string, raw []byte) (string, error) {
+				parsedRecipient, err := relaySvc.Recipients.Parse(rcpt)
+				if err != nil {
+					return "", err
+				}
+				parsedEmail, err := relaySvc.Email.Parse(raw)
+				if err != nil {
+					return "", err
+				}
+				return fmt.Sprintf(
+					"маршрут валиден: route=%+v, attachments=%d",
+					parsedRecipient,
+					len(parsedEmail.Attachments),
+				), nil
+			},
 			WithReplay: relay.WithDLQBypass,
 			MaxRetries: cfg.DLQMaxRetries,
 			BaseDelay:  cfg.DLQBaseDelay,
