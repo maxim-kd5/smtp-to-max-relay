@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"smtp-to-max-relay/internal/config"
+	"smtp-to-max-relay/internal/dlq"
 	"smtp-to-max-relay/internal/email"
 	"smtp-to-max-relay/internal/max"
 	"smtp-to-max-relay/internal/metrics"
@@ -68,6 +69,19 @@ func main() {
 		log.Printf("using MAX sender mode=stub")
 	}
 
+	var dlqStore dlq.Store
+	if cfg.DLQEnabled {
+		sqliteStore, err := dlq.NewSQLiteStore(cfg.DLQSQLitePath)
+		if err != nil {
+			log.Fatalf("dlq init error: %v", err)
+		}
+		defer func() { _ = sqliteStore.Close() }()
+		dlqStore = sqliteStore
+		log.Printf("DLQ enabled sqlite=%s", cfg.DLQSQLitePath)
+	} else {
+		log.Printf("DLQ disabled")
+	}
+
 	m := metrics.NewCollector()
 	recipients := recipient.NewParser(cfg.SMTPAllowedDomain, aliases)
 
@@ -78,6 +92,7 @@ func main() {
 		MaxSendRetries: cfg.RelayMaxRetries,
 		RetryBaseDelay: cfg.RelayRetryDelay,
 		Metrics:        m,
+		DLQStore:       dlqStore,
 	}
 
 	server := smtpsrv.NewServer(

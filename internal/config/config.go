@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -21,6 +22,8 @@ type Config struct {
 	RelayMaxRetries     int
 	RelayRetryDelay     time.Duration
 	MetricsListenAddr   string
+	DLQEnabled          bool
+	DLQSQLitePath       string
 }
 
 func Load() (Config, error) {
@@ -63,6 +66,8 @@ func Load() (Config, error) {
 		RelayMaxRetries:     relayMaxRetries,
 		RelayRetryDelay:     time.Duration(relayRetryDelayMS) * time.Millisecond,
 		MetricsListenAddr:   getEnv("METRICS_LISTEN_ADDR", ":9090"),
+		DLQEnabled:          getEnvBool("DLQ_ENABLED", true),
+		DLQSQLitePath:       getEnv("DLQ_SQLITE_PATH", "./data/dlq.sqlite"),
 	}
 
 	if cfg.SMTPAllowedDomain == "" {
@@ -88,6 +93,9 @@ func Load() (Config, error) {
 	}
 	if cfg.AdminChatID < 0 {
 		return Config{}, fmt.Errorf("ADMIN_CHAT_ID must be >= 0")
+	}
+	if cfg.DLQEnabled && strings.TrimSpace(cfg.DLQSQLitePath) == "" {
+		return Config{}, fmt.Errorf("DLQ_SQLITE_PATH must not be empty when DLQ_ENABLED=true")
 	}
 
 	return cfg, nil
@@ -122,4 +130,12 @@ func getEnvInt64(key string, def int64) (int64, error) {
 		return 0, fmt.Errorf("%s must be a valid integer: %w", key, err)
 	}
 	return n, nil
+}
+
+func getEnvBool(key string, def bool) bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	if v == "" {
+		return def
+	}
+	return v == "1" || v == "true" || v == "yes" || v == "on"
 }

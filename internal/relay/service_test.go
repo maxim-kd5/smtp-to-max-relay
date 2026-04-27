@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"smtp-to-max-relay/internal/dlq"
 	"smtp-to-max-relay/internal/email"
+	"smtp-to-max-relay/internal/metrics"
 	"smtp-to-max-relay/internal/recipient"
 )
 
@@ -66,6 +68,25 @@ func (f *flakySender) SendFile(_ context.Context, _ string, _ email.Attachment, 
 	return nil
 }
 
+type alwaysFailSender struct{}
+
+func (a *alwaysFailSender) SendText(_ context.Context, _, _ string, _ bool) error {
+	return errors.New("max api unavailable")
+}
+
+func (a *alwaysFailSender) SendFile(_ context.Context, _ string, _ email.Attachment, _ bool) error {
+	return nil
+}
+
+type captureDLQStore struct {
+	items []dlq.EnqueueParams
+}
+
+func (c *captureDLQStore) Enqueue(_ context.Context, params dlq.EnqueueParams) (int64, error) {
+	c.items = append(c.items, params)
+	return int64(len(c.items)), nil
+}
+
 func TestRelayRetriesOnTemporarySenderError(t *testing.T) {
 	flaky := &flakySender{failTextFor: 1}
 	s := &Service{
@@ -82,6 +103,38 @@ func TestRelayRetriesOnTemporarySenderError(t *testing.T) {
 	}
 	if flaky.calls != 2 {
 		t.Fatalf("expected 2 send attempts, got %d", flaky.calls)
+	}
+}
+
+func TestRelayEnqueuesFailedDeliveryToDLQ(t *testing.T) {
+	dlqStore := &captureDLQStore{}
+	m := metrics.NewCollector()
+	s := &Service{
+		Recipients:     recipient.NewParser("relay.local", nil),
+		Email:          email.NewParser(1024 * 1024),
+		Sender:         &alwaysFailSender{},
+		MaxSendRetries: 0,
+		DLQStore:       dlqStore,
+		Metrics:        m,
+	}
+
+	raw := []byte("Subject: Fail\r\nFrom: sender@example.com\r\nContent-Type: text/plain\r\n\r\nBody")
+	err := s.Relay(context.Background(), "chatid123@relay.local", raw)
+	if err == nil {
+		t.Fatalf("expected relay error")
+	}
+
+	if len(dlqStore.items) != 1 {
+		t.Fatalf("expected 1 DLQ item, got %d", len(dlqStore.items))
+	}
+	if dlqStore.items[0].Recipient != "chatid123@relay.local" {
+		t.Fatalf("unexpected DLQ recipient: %q", dlqStore.items[0].Recipient)
+	}
+	if string(dlqStore.items[0].RawMessage) != string(raw) {
+		t.Fatalf("unexpected DLQ raw message")
+	}
+	if dlqStore.items[0].LastError == "" {
+		t.Fatalf("expected non-empty DLQ error")
 	}
 }
 

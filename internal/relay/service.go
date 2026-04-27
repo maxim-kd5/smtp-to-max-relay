@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"smtp-to-max-relay/internal/dlq"
 	"smtp-to-max-relay/internal/email"
 	"smtp-to-max-relay/internal/max"
 	"smtp-to-max-relay/internal/metrics"
@@ -24,6 +25,7 @@ type Service struct {
 	MaxSendRetries int
 	RetryBaseDelay time.Duration
 	Metrics        *metrics.Collector
+	DLQStore       dlq.Store
 }
 
 func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) error {
@@ -83,6 +85,7 @@ func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) err
 				s.Metrics.IncFailed()
 				s.Metrics.ObserveDelivery(rcpt, false, pr.ChatID, pr.SourceLocal)
 			}
+			s.enqueueFailedDelivery(ctx, rcpt, rawMessage, err)
 			return fmt.Errorf("send text: %w", err)
 		}
 	}
@@ -106,6 +109,7 @@ func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) err
 				s.Metrics.IncFailed()
 				s.Metrics.ObserveDelivery(rcpt, false, pr.ChatID, pr.SourceLocal)
 			}
+			s.enqueueFailedDelivery(ctx, rcpt, rawMessage, err)
 			return fmt.Errorf("send file %s: %w", a.Filename, err)
 		}
 		if s.Metrics != nil {
@@ -198,4 +202,21 @@ func (s *Service) sendWithRetry(ctx context.Context, fn func() error) error {
 		}
 	}
 	return err
+}
+
+func (s *Service) enqueueFailedDelivery(ctx context.Context, rcpt string, rawMessage []byte, sendErr error) {
+	if s.DLQStore == nil {
+		return
+	}
+	_, err := s.DLQStore.Enqueue(ctx, dlq.EnqueueParams{
+		Recipient:  rcpt,
+		RawMessage: append([]byte(nil), rawMessage...),
+		LastError:  sendErr.Error(),
+	})
+	if err != nil {
+		return
+	}
+	if s.Metrics != nil {
+		s.Metrics.IncDLQEnqueued()
+	}
 }

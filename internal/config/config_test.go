@@ -25,6 +25,12 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.MaxSenderMode != "stub" {
 		t.Fatalf("unexpected sender mode: %q", cfg.MaxSenderMode)
 	}
+	if !cfg.DLQEnabled {
+		t.Fatalf("expected DLQ to be enabled by default")
+	}
+	if cfg.DLQSQLitePath != "./data/dlq.sqlite" {
+		t.Fatalf("unexpected DLQ path: %q", cfg.DLQSQLitePath)
+	}
 }
 
 func TestLoadRejectsInvalidIntegerEnv(t *testing.T) {
@@ -78,6 +84,17 @@ func TestLoadRejectsInvalidMaxConcurrentSessions(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsEmptyDLQPathWhenEnabled(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("DLQ_ENABLED", "true")
+	t.Setenv("DLQ_SQLITE_PATH", "   ")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "DLQ_SQLITE_PATH must not be empty") {
+		t.Fatalf("expected DLQ path validation error, got %v", err)
+	}
+}
+
 func clearConfigEnv(t *testing.T) {
 	t.Helper()
 
@@ -95,6 +112,8 @@ func clearConfigEnv(t *testing.T) {
 		"RELAY_MAX_RETRIES",
 		"RELAY_RETRY_DELAY_MS",
 		"METRICS_LISTEN_ADDR",
+		"DLQ_ENABLED",
+		"DLQ_SQLITE_PATH",
 	} {
 		t.Setenv(key, "")
 	}

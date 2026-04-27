@@ -23,6 +23,8 @@ Environment variables:
 - `RELAY_MAX_RETRIES` (default `2`)
 - `RELAY_RETRY_DELAY_MS` (default `300`)
 - `METRICS_LISTEN_ADDR` (default `:9090`, set empty to disable)
+- `DLQ_ENABLED` (default `true`; when enabled, failed deliveries are persisted to DLQ)
+- `DLQ_SQLITE_PATH` (default `./data/dlq.sqlite`)
 
 `MAX_SENDER_MODE=botapi` uses `github.com/max-messenger/max-bot-api-client-go` for outgoing MAX messages, file uploads, and long polling bot updates.
 
