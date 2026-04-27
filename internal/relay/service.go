@@ -70,7 +70,11 @@ func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) err
 		log.Printf("%srelay parse email failed rcpt=%s: %v", trace.Prefix(ctx), rcpt, err)
 		if s.Metrics != nil {
 			s.Metrics.IncFailed()
-			s.Metrics.ObserveDelivery(rcpt, false, pr.ChatID, pr.SourceLocal)
+			targetChatID := ""
+			if len(pr.Targets) > 0 {
+				targetChatID = pr.Targets[0].ChatID
+			}
+			s.Metrics.ObserveDelivery(rcpt, false, targetChatID, pr.SourceLocal)
 		}
 		return fmt.Errorf("parse email: %w", err)
 	}
@@ -81,72 +85,74 @@ func (s *Service) Relay(ctx context.Context, rcpt string, rawMessage []byte) err
 	}
 
 	text := fmt.Sprintf("📧 %s\nОт: %s\n\n%s", fallback(em.Subject, "(без темы)"), em.From, body)
-	for _, chunk := range splitTextMessage(text, maxTextMessageBytes) {
-		chunk := chunk
-		sendStartedAt := time.Now()
-		err := s.sendWithRetry(ctx, func() error {
-			return s.Sender.SendText(ctx, pr.ChatID, chunk, pr.Silent)
-		})
-		if s.Metrics != nil {
-			s.Metrics.ObserveLatency("max_send", time.Since(sendStartedAt))
-		}
-		if err != nil {
-			log.Printf("%srelay send text failed chat_id=%s rcpt=%s: %v", trace.Prefix(ctx), pr.ChatID, rcpt, err)
+	for _, target := range pr.Targets {
+		for _, chunk := range splitTextMessage(text, maxTextMessageBytes) {
+			chunk := chunk
+			sendStartedAt := time.Now()
+			err := s.sendWithRetry(ctx, func() error {
+				return s.Sender.SendText(ctx, target.ChatID, chunk, target.Silent)
+			})
 			if s.Metrics != nil {
-				s.Metrics.IncFailed()
-				s.Metrics.ObserveDelivery(rcpt, false, pr.ChatID, pr.SourceLocal)
+				s.Metrics.ObserveLatency("max_send", time.Since(sendStartedAt))
 			}
-			if s.DLQ != nil && !shouldBypassDLQ(ctx) {
-				if _, qerr := s.DLQ.Enqueue(rcpt, rawMessage, err); qerr != nil {
-					return fmt.Errorf("send text: %w (dlq enqueue: %v)", err, qerr)
-				}
+			if err != nil {
+				log.Printf("%srelay send text failed chat_id=%s rcpt=%s: %v", trace.Prefix(ctx), target.ChatID, rcpt, err)
 				if s.Metrics != nil {
-					s.Metrics.IncDLQEnqueued()
+					s.Metrics.IncFailed()
+					s.Metrics.ObserveDelivery(rcpt, false, target.ChatID, pr.SourceLocal)
 				}
+				if s.DLQ != nil && !shouldBypassDLQ(ctx) {
+					if _, qerr := s.DLQ.Enqueue(rcpt, rawMessage, err); qerr != nil {
+						return fmt.Errorf("send text: %w (dlq enqueue: %v)", err, qerr)
+					}
+					if s.Metrics != nil {
+						s.Metrics.IncDLQEnqueued()
+					}
+				}
+				return fmt.Errorf("send text: %w", err)
 			}
-			return fmt.Errorf("send text: %w", err)
 		}
-	}
 
-	if s.Metrics != nil {
-		s.Metrics.IncTextSent()
-	}
-
-	for _, a := range em.Attachments {
-		att := a
-		sendStartedAt := time.Now()
-		err := s.sendWithRetry(ctx, func() error {
-			return s.Sender.SendFile(ctx, pr.ChatID, att, pr.Silent)
-		})
 		if s.Metrics != nil {
-			s.Metrics.ObserveLatency("max_send", time.Since(sendStartedAt))
+			s.Metrics.IncTextSent()
 		}
-		if err != nil {
-			log.Printf("%srelay send file failed chat_id=%s file=%s rcpt=%s: %v", trace.Prefix(ctx), pr.ChatID, a.Filename, rcpt, err)
+
+		for _, a := range em.Attachments {
+			att := a
+			sendStartedAt := time.Now()
+			err := s.sendWithRetry(ctx, func() error {
+				return s.Sender.SendFile(ctx, target.ChatID, att, target.Silent)
+			})
 			if s.Metrics != nil {
-				s.Metrics.IncFailed()
-				s.Metrics.ObserveDelivery(rcpt, false, pr.ChatID, pr.SourceLocal)
+				s.Metrics.ObserveLatency("max_send", time.Since(sendStartedAt))
 			}
-			if s.DLQ != nil && !shouldBypassDLQ(ctx) {
-				if _, qerr := s.DLQ.Enqueue(rcpt, rawMessage, err); qerr != nil {
-					return fmt.Errorf("send file %s: %w (dlq enqueue: %v)", a.Filename, err, qerr)
-				}
+			if err != nil {
+				log.Printf("%srelay send file failed chat_id=%s file=%s rcpt=%s: %v", trace.Prefix(ctx), target.ChatID, a.Filename, rcpt, err)
 				if s.Metrics != nil {
-					s.Metrics.IncDLQEnqueued()
+					s.Metrics.IncFailed()
+					s.Metrics.ObserveDelivery(rcpt, false, target.ChatID, pr.SourceLocal)
 				}
+				if s.DLQ != nil && !shouldBypassDLQ(ctx) {
+					if _, qerr := s.DLQ.Enqueue(rcpt, rawMessage, err); qerr != nil {
+						return fmt.Errorf("send file %s: %w (dlq enqueue: %v)", a.Filename, err, qerr)
+					}
+					if s.Metrics != nil {
+						s.Metrics.IncDLQEnqueued()
+					}
+				}
+				return fmt.Errorf("send file %s: %w", a.Filename, err)
 			}
-			return fmt.Errorf("send file %s: %w", a.Filename, err)
+			if s.Metrics != nil {
+				s.Metrics.IncFilesSent()
+			}
 		}
-		if s.Metrics != nil {
-			s.Metrics.IncFilesSent()
-		}
-	}
 
-	if s.Metrics != nil {
-		s.Metrics.IncRelayed()
-		s.Metrics.ObserveDelivery(rcpt, true, pr.ChatID, pr.SourceLocal)
+		if s.Metrics != nil {
+			s.Metrics.IncRelayed()
+			s.Metrics.ObserveDelivery(rcpt, true, target.ChatID, pr.SourceLocal)
+		}
+		log.Printf("%srelay delivered rcpt=%s chat_id=%s attachments=%d", trace.Prefix(ctx), rcpt, target.ChatID, len(em.Attachments))
 	}
-	log.Printf("%srelay delivered rcpt=%s chat_id=%s attachments=%d", trace.Prefix(ctx), rcpt, pr.ChatID, len(em.Attachments))
 	return nil
 }
 

@@ -19,9 +19,11 @@ import (
 
 type AliasAdmin interface {
 	ValidateAliasTarget(local string) error
-	SetAlias(alias, target string)
+	SetAliasGroup(alias string, targets []string)
+	AddAliasTargets(alias string, targets []string)
+	RemoveAliasTargets(alias string, targets []string)
 	DeleteAlias(alias string)
-	SnapshotAliases() map[string]string
+	SnapshotAliases() map[string][]string
 }
 
 type StatsReporter interface {
@@ -219,11 +221,71 @@ func maybeHandleAdminAliasCommandWithDLQ(ctx context.Context, text string, sende
 		if err := aliasAdmin.ValidateAliasTarget(target); err != nil {
 			return fmt.Sprintf("Некорректный target алиаса: %v", err), true
 		}
-		aliasAdmin.SetAlias(name, target)
+		aliasAdmin.SetAliasGroup(name, []string{target})
 		if err := recipient.SaveAliases(aliasFilePath, aliasAdmin.SnapshotAliases()); err != nil {
 			return fmt.Sprintf("Алиас сохранён в памяти, но не записан в файл: %v", err), true
 		}
 		return fmt.Sprintf("Алиас сохранён: %s -> %s", name, target), true
+	case "/alias_group":
+		if aliasAdmin == nil {
+			return "Управление алиасами недоступно", true
+		}
+		if len(parts) != 3 {
+			return "Использование: /alias_group <имя> <chatid1,chatid2,...>", true
+		}
+		name := normalizeAliasName(parts[1])
+		targets, err := normalizeAliasTargetsArg(parts[2])
+		if name == "" {
+			return "Имя алиаса должно состоять из букв/цифр/._-", true
+		}
+		if err != nil {
+			return err.Error(), true
+		}
+		aliasAdmin.SetAliasGroup(name, targets)
+		if err := recipient.SaveAliases(aliasFilePath, aliasAdmin.SnapshotAliases()); err != nil {
+			return fmt.Sprintf("Группа алиаса сохранена в памяти, но не записана в файл: %v", err), true
+		}
+		return fmt.Sprintf("Группа алиаса сохранена: %s -> %s", name, strings.Join(targets, ",")), true
+	case "/alias_add":
+		if aliasAdmin == nil {
+			return "Управление алиасами недоступно", true
+		}
+		if len(parts) != 3 {
+			return "Использование: /alias_add <имя> <chatid...>", true
+		}
+		name := normalizeAliasName(parts[1])
+		targets, err := normalizeAliasTargetsArg(parts[2])
+		if name == "" {
+			return "Имя алиаса должно состоять из букв/цифр/._-", true
+		}
+		if err != nil {
+			return err.Error(), true
+		}
+		aliasAdmin.AddAliasTargets(name, targets)
+		if err := recipient.SaveAliases(aliasFilePath, aliasAdmin.SnapshotAliases()); err != nil {
+			return fmt.Sprintf("Target'ы добавлены в памяти, но не записаны в файл: %v", err), true
+		}
+		return fmt.Sprintf("Target'ы добавлены: %s -> %s", name, strings.Join(targets, ",")), true
+	case "/alias_remove":
+		if aliasAdmin == nil {
+			return "Управление алиасами недоступно", true
+		}
+		if len(parts) != 3 {
+			return "Использование: /alias_remove <имя> <chatid...>", true
+		}
+		name := normalizeAliasName(parts[1])
+		targets, err := normalizeAliasTargetsArg(parts[2])
+		if name == "" {
+			return "Имя алиаса должно состоять из букв/цифр/._-", true
+		}
+		if err != nil {
+			return err.Error(), true
+		}
+		aliasAdmin.RemoveAliasTargets(name, targets)
+		if err := recipient.SaveAliases(aliasFilePath, aliasAdmin.SnapshotAliases()); err != nil {
+			return fmt.Sprintf("Target'ы удалены в памяти, но не записаны в файл: %v", err), true
+		}
+		return fmt.Sprintf("Target'ы удалены: %s -> %s", name, strings.Join(targets, ",")), true
 	case "/unalias":
 		if aliasAdmin == nil {
 			return "Управление алиасами недоступно", true
@@ -249,7 +311,7 @@ func maybeHandleAdminAliasCommandWithDLQ(ctx context.Context, text string, sende
 	return "", false
 }
 
-func buildAliasesListReply(aliases map[string]string) string {
+func buildAliasesListReply(aliases map[string][]string) string {
 	if len(aliases) == 0 {
 		return "Список алиасов пуст"
 	}
@@ -263,9 +325,11 @@ func buildAliasesListReply(aliases map[string]string) string {
 	lines := make([]string, 0, len(names)+2)
 	lines = append(lines, "Алиасы (имя -> chatid -> чат):")
 	for _, name := range names {
-		target := aliases[name]
-		chatID := extractChatIDFromAliasTarget(target)
-		lines = append(lines, fmt.Sprintf("- %s -> %s -> %s", name, chatID, "(название чата недоступно через Bot API)"))
+		targetIDs := make([]string, 0, len(aliases[name]))
+		for _, target := range aliases[name] {
+			targetIDs = append(targetIDs, extractChatIDFromAliasTarget(target))
+		}
+		lines = append(lines, fmt.Sprintf("- %s -> %s -> %s", name, strings.Join(targetIDs, ","), "(название чата недоступно через Bot API)"))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -310,6 +374,27 @@ func normalizeAliasTarget(value string) (string, error) {
 		return "chatid" + target, nil
 	}
 	return "", fmt.Errorf("target алиаса должен быть chatid..., либо числом (например 260920412 или -73211480961715.silent)")
+}
+
+func normalizeAliasTargetsArg(value string) ([]string, error) {
+	rawItems := strings.Split(value, ",")
+	targets := make([]string, 0, len(rawItems))
+	seen := map[string]struct{}{}
+	for _, item := range rawItems {
+		target, err := normalizeAliasTarget(item)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := seen[target]; ok {
+			continue
+		}
+		seen[target] = struct{}{}
+		targets = append(targets, target)
+	}
+	if len(targets) == 0 {
+		return nil, fmt.Errorf("нужен хотя бы один target алиаса")
+	}
+	return targets, nil
 }
 
 func replyForMessageText(text, chatID string, sender *schemes.User, botUsername, allowedDomain string) (string, bool) {
