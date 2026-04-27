@@ -2,12 +2,15 @@ package max
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	maxbot "github.com/max-messenger/max-bot-api-client-go"
@@ -31,10 +34,23 @@ type StatsReporter interface {
 type DLQAdmin interface {
 	Summary() string
 	List(limit int) string
+	Show(id string) string
 	Replay(ctx context.Context, id string) string
+	ReplayDry(ctx context.Context, id string) string
+	ReplayBatch(ctx context.Context, limit int, mode string) string
 }
 
 var numericAliasTargetPattern = regexp.MustCompile(`^-?\d+(\.silent)?$`)
+
+type confirmAction struct {
+	expiresAt time.Time
+	execute   func() string
+}
+
+var (
+	confirmMu      sync.Mutex
+	pendingConfirm = map[string]confirmAction{}
+)
 
 func SendStartupNotification(ctx context.Context, sender Sender, adminChatID int64) error {
 	if sender == nil || adminChatID == 0 {
@@ -164,7 +180,9 @@ func maybeHandleAdminAliasCommandWithDLQ(ctx context.Context, text string, sende
 	if len(parts) == 0 {
 		return "", false
 	}
-	switch strings.ToLower(parts[0]) {
+	command := strings.ToLower(parts[0])
+	log.Printf("admin command audit user_id=%d chat_id=%d command=%q text=%q", sender.UserId, chatID, command, strings.TrimSpace(text))
+	switch command {
 	case "/dlq":
 		if dlqAdmin == nil {
 			return "DLQ недоступен", true
@@ -183,6 +201,22 @@ func maybeHandleAdminAliasCommandWithDLQ(ctx context.Context, text string, sende
 			limit = n
 		}
 		return dlqAdmin.List(limit), true
+	case "/dlq_show":
+		if dlqAdmin == nil {
+			return "DLQ недоступен", true
+		}
+		if len(parts) != 2 {
+			return "Использование: /dlq_show <id>", true
+		}
+		return dlqAdmin.Show(parts[1]), true
+	case "/replay_dry":
+		if dlqAdmin == nil {
+			return "DLQ недоступен", true
+		}
+		if len(parts) != 2 {
+			return "Использование: /replay_dry <id>", true
+		}
+		return dlqAdmin.ReplayDry(ctx, parts[1]), true
 	case "/replay":
 		if dlqAdmin == nil {
 			return "DLQ недоступен", true
@@ -190,7 +224,41 @@ func maybeHandleAdminAliasCommandWithDLQ(ctx context.Context, text string, sende
 		if len(parts) != 2 {
 			return "Использование: /replay <id>", true
 		}
-		return dlqAdmin.Replay(ctx, parts[1]), true
+		token := registerConfirm(chatID, 5*time.Minute, func() string {
+			return dlqAdmin.Replay(ctx, parts[1])
+		})
+		log.Printf("admin command pending-confirm user_id=%d chat_id=%d command=%q token=%s", sender.UserId, chatID, command, token)
+		return fmt.Sprintf("Требуется подтверждение: /confirm %s (действует 5 минут)", token), true
+	case "/replay_batch":
+		if dlqAdmin == nil {
+			return "DLQ недоступен", true
+		}
+		if len(parts) < 2 || len(parts) > 3 {
+			return "Использование: /replay_batch <limit> [only_failed|only_pending]", true
+		}
+		limit, err := strconv.Atoi(parts[1])
+		if err != nil || limit <= 0 {
+			return "Использование: /replay_batch <limit> [only_failed|only_pending]", true
+		}
+		mode := ""
+		if len(parts) == 3 {
+			mode = parts[2]
+		}
+		token := registerConfirm(chatID, 5*time.Minute, func() string {
+			return dlqAdmin.ReplayBatch(ctx, limit, mode)
+		})
+		log.Printf("admin command pending-confirm user_id=%d chat_id=%d command=%q token=%s", sender.UserId, chatID, command, token)
+		return fmt.Sprintf("Требуется подтверждение: /confirm %s (действует 5 минут)", token), true
+	case "/confirm":
+		if len(parts) != 2 {
+			return "Использование: /confirm <token>", true
+		}
+		reply, ok := consumeConfirm(chatID, parts[1])
+		if !ok {
+			return "Токен подтверждения не найден или истёк", true
+		}
+		log.Printf("admin command confirmed user_id=%d chat_id=%d token=%s", sender.UserId, chatID, parts[1])
+		return reply, true
 	case "/stats7d":
 		if statsReporter == nil {
 			return "Статистика недоступна", true
@@ -247,6 +315,58 @@ func maybeHandleAdminAliasCommandWithDLQ(ctx context.Context, text string, sende
 		return buildAliasesListReply(aliasAdmin.SnapshotAliases()), true
 	}
 	return "", false
+}
+
+func registerConfirm(chatID int64, ttl time.Duration, execute func() string) string {
+	token := randomToken(8)
+	if ttl <= 0 {
+		ttl = 5 * time.Minute
+	}
+	confirmMu.Lock()
+	defer confirmMu.Unlock()
+	purgeExpiredLocked(time.Now().UTC())
+	pendingConfirm[confirmKey(chatID, token)] = confirmAction{
+		expiresAt: time.Now().UTC().Add(ttl),
+		execute:   execute,
+	}
+	return token
+}
+
+func consumeConfirm(chatID int64, token string) (string, bool) {
+	confirmMu.Lock()
+	key := confirmKey(chatID, token)
+	action, ok := pendingConfirm[key]
+	if !ok || time.Now().UTC().After(action.expiresAt) {
+		delete(pendingConfirm, key)
+		confirmMu.Unlock()
+		return "", false
+	}
+	delete(pendingConfirm, key)
+	confirmMu.Unlock()
+	return action.execute(), true
+}
+
+func purgeExpiredLocked(now time.Time) {
+	for key, action := range pendingConfirm {
+		if now.After(action.expiresAt) {
+			delete(pendingConfirm, key)
+		}
+	}
+}
+
+func confirmKey(chatID int64, token string) string {
+	return strconv.FormatInt(chatID, 10) + ":" + strings.TrimSpace(token)
+}
+
+func randomToken(size int) string {
+	if size <= 0 {
+		size = 8
+	}
+	buf := make([]byte, size)
+	if _, err := rand.Read(buf); err != nil {
+		return strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
+	}
+	return hex.EncodeToString(buf)
 }
 
 func buildAliasesListReply(aliases map[string]string) string {
