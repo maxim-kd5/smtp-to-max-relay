@@ -144,6 +144,9 @@ func TestAliasAndGroupCommands(t *testing.T) {
 	if !ok || !strings.Contains(reply, "Алиас сохранён") {
 		t.Fatalf("unexpected alias reply: %q", reply)
 	}
+	if got := a.values["alerts"]; len(got) != 1 || got[0] != "chatid123.silent" {
+		t.Fatalf("unexpected alias value: %v", got)
+	}
 
 	reply, ok = maybeHandleAdminAliasCommand("/alias_group ops chatid1,chatid2.silent", admin, 100, file, a, nil, auth)
 	if !ok || !strings.Contains(reply, "Группа алиаса сохранена") {

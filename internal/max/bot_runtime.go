@@ -120,13 +120,7 @@ func handleMessageCreatedUpdate(ctx context.Context, sender Sender, botUserID in
 		return
 	}
 
-	reply, ok := replyForMessageText(
-		upd.Message.Body.Text,
-		strconv.FormatInt(chatID, 10),
-		upd.Message.Sender,
-		botUsername,
-		allowedDomain,
-	)
+	reply, ok := replyForMessageText(upd.Message.Body.Text, strconv.FormatInt(chatID, 10), upd.Message.Sender, botUsername, allowedDomain)
 	if !ok {
 		reply, ok = maybeHandleAdminAliasCommandWithDLQ(ctx, upd.Message.Body.Text, upd.Message.Sender, chatID, aliasFilePath, aliasAdmin, statsReporter, dlqAdmin, authorizer)
 	}
@@ -136,7 +130,6 @@ func handleMessageCreatedUpdate(ctx context.Context, sender Sender, botUserID in
 
 	sendCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-
 	if err := sender.SendText(sendCtx, strconv.FormatInt(chatID, 10), reply, true); err != nil {
 		log.Printf("MAX bot reply failed chat_id=%d: %v", chatID, err)
 	}
@@ -157,6 +150,7 @@ func maybeHandleAdminAliasCommandWithDLQ(ctx context.Context, text string, sende
 	userID := sender.UserId
 	command := strings.ToLower(parts[0])
 	log.Printf("admin command audit user_id=%d chat_id=%d command=%q text=%q", sender.UserId, chatID, command, strings.TrimSpace(text))
+
 	switch command {
 	case "/grant":
 		if !authorizer.IsSuperAdmin(userID, chatID) {
@@ -249,9 +243,7 @@ func maybeHandleAdminAliasCommandWithDLQ(ctx context.Context, text string, sende
 		if len(parts) != 2 {
 			return "Использование: /replay <id>", true
 		}
-		token := registerConfirm(chatID, 5*time.Minute, func() string {
-			return dlqAdmin.Replay(ctx, parts[1])
-		})
+		token := registerConfirm(chatID, 5*time.Minute, func() string { return dlqAdmin.Replay(ctx, parts[1]) })
 		log.Printf("admin command pending-confirm user_id=%d chat_id=%d command=%q token=%s", sender.UserId, chatID, command, token)
 		return fmt.Sprintf("Требуется подтверждение: /confirm %s (действует 5 минут)", token), true
 	case "/replay_batch":
@@ -272,9 +264,7 @@ func maybeHandleAdminAliasCommandWithDLQ(ctx context.Context, text string, sende
 		if len(parts) == 3 {
 			mode = parts[2]
 		}
-		token := registerConfirm(chatID, 5*time.Minute, func() string {
-			return dlqAdmin.ReplayBatch(ctx, limit, mode)
-		})
+		token := registerConfirm(chatID, 5*time.Minute, func() string { return dlqAdmin.ReplayBatch(ctx, limit, mode) })
 		log.Printf("admin command pending-confirm user_id=%d chat_id=%d command=%q token=%s", sender.UserId, chatID, command, token)
 		return fmt.Sprintf("Требуется подтверждение: /confirm %s (действует 5 минут)", token), true
 	case "/confirm":
@@ -429,6 +419,7 @@ func maybeHandleAdminAliasCommandWithDLQ(ctx context.Context, text string, sende
 		}
 		return buildAliasesListReply(aliasAdmin.SnapshotAliases()), true
 	}
+
 	return "", false
 }
 
@@ -441,6 +432,7 @@ func buildAliasesListReply(aliases map[string][]string) string {
 		names = append(names, name)
 	}
 	sort.Strings(names)
+
 	lines := make([]string, 0, len(names)+2)
 	lines = append(lines, "Алиасы (имя -> chatid -> чат):")
 	for _, name := range names {
