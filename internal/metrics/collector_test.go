@@ -13,6 +13,9 @@ func TestCollectorHandler(t *testing.T) {
 	c.IncRelayed()
 	c.IncTextSent()
 	c.IncFilesSent()
+	c.IncMaxSendRateLimited()
+	c.SetMaxSendQueueDepth(3)
+	c.IncMaxSendQueueDropped()
 	c.ObserveLatency("email_parse", 20*time.Millisecond)
 	c.ObserveLatency("max_send", 120*time.Millisecond)
 	c.ObserveDelivery("alerts@relay.local", true, "123", "alerts")
@@ -29,6 +32,9 @@ func TestCollectorHandler(t *testing.T) {
 		"smtp_relay_failed_total 0",
 		"smtp_relay_text_sent_total 1",
 		"smtp_relay_files_sent_total 1",
+		"max_send_rate_limited_total 1",
+		"max_send_queue_depth 3",
+		"max_send_queue_dropped_total 1",
 		`smtp_relay_latency_seconds_count{stage="email_parse"} 1`,
 		`smtp_relay_latency_seconds_count{stage="max_send"} 1`,
 		`smtp_relay_delivery_total{address="alerts@relay.local",delivered="true",max_recipient_id="123",max_recipient_name="alerts"} 1`,
