@@ -432,7 +432,6 @@ func buildAliasesListReply(aliases map[string][]string) string {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-
 	lines := make([]string, 0, len(names)+2)
 	lines = append(lines, "Алиасы (имя -> chatid -> чат):")
 	for _, name := range names {
